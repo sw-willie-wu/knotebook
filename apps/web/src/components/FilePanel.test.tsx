@@ -155,7 +155,7 @@ describe("FilePanel (own Upload/Embed tabs for image, audio, video and file bloc
     ["video", fileOf("all-day.mp4", "video/mp4", 300 * MIB), ctxValue(), "This file is 300 MB; the limit for this type is 100 MB."],
     ["file", fileOf("quote.pdf", "application/pdf", 5 * MIB), ctxValue({ roomBytes: 2 * MIB }), "This file is 5 MB; this space has 2 MB left."],
     ["file", fileOf("blank.txt", "text/plain", 0), ctxValue(), "This file is empty."],
-    ["file", fileOf("bundle.zip", "application/zip", MIB), ctxValue(), "This file type isn't supported. You can upload images, audio, video, PDFs, Office documents and text files."],
+    ["file", fileOf("bundle.zip", "application/zip", MIB), ctxValue(), "This file type isn't supported. You can upload images, audio, video, PDFs, Office and OpenDocument files, and text files."],
   ])("%s block: a pre-check refusal shows inline only; nothing is sent, nothing queued, the block is untouched", async (type, file, ctx, message) => {
     const blockId = insertBlock(editor, type);
     renderPanel(editor, "note-1", blockId, () => Promise.resolve(ctx));

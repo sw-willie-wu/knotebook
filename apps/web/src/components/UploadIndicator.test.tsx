@@ -261,11 +261,12 @@ describe("UploadIndicator: the list", () => {
   });
 
   it("an unplaced row says the file was stored but its place is gone; failed and unplaced rows can be closed", async () => {
-    putUpload(upload("u", { fileName: "clip.mp4", status: "unplaced" }));
+    putUpload(upload("u", { fileName: "clip.mp4", status: "unplaced", stored: true }));
     putUpload(upload("f", { fileName: "quote.pdf", status: "failed", error: new ApiFail(415, "unsupported_media_type", "x") }));
     renderIndicator();
     const panel = await openList();
     expect(within(panel).getByText("Uploaded, but its place in the note is gone.")).toBeInTheDocument();
+    expect(within(panel).queryByText("Not uploaded: its place in the note is gone.")).toBeNull();
     fireEvent.click(within(panel).getByRole("button", { name: "Close clip.mp4" }));
     expect(getUploadItems().map((i) => i.id)).toEqual(["f"]);
     expect(within(panel).getAllByRole("listitem")).toHaveLength(1);
@@ -273,6 +274,14 @@ describe("UploadIndicator: the list", () => {
     expect(getUploadItems()).toEqual([]);
     await waitFor(() => expect(screen.queryByTestId("uploads-popover")).toBeNull());
     expect(document.querySelector("[data-upload-indicator]")).toBeNull();
+  });
+
+  it("an unplaced row whose file was never sent (a retry found its block gone) says so", async () => {
+    putUpload(upload("u", { fileName: "clip.mp4", status: "unplaced" }));
+    renderIndicator();
+    const panel = await openList();
+    expect(within(panel).getByText("Not uploaded: its place in the note is gone.")).toBeInTheDocument();
+    expect(within(panel).queryByText("Uploaded, but its place in the note is gone.")).toBeNull();
   });
 
   it("after the last item is closed, the next upload brings the pill back closed, not the old panel", async () => {

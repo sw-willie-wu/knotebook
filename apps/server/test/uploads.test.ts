@@ -88,7 +88,7 @@ function buildMultipartBody(parts: BodyPart[], boundary = BOUNDARY): Buffer {
   return Buffer.concat(chunks);
 }
 
-// A complete 8-byte PNG signature (`detectImageMimeType` requires the whole signature, not an arbitrary prefix) plus some content,
+// A complete 8-byte PNG signature (`detectRasterImageMimeType` requires the whole signature, not an arbitrary prefix) plus some content,
 // so that "the file is not empty" is covered too.
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03]);
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02]);

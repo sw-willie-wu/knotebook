@@ -1,6 +1,7 @@
-import { useId, useRef, useState, type ReactNode } from "react";
+import { lazy, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
+import { ApiFail } from "@/api/client";
 import { useSession } from "@/auth/useSession";
 import { Avatar } from "@/components/Avatar";
 import { useTheme, ACCENTS, type Accent, type Theme } from "@/theme";
@@ -26,7 +27,28 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { tourTarget } from "@/lib/tour-targets";
-import { clearUploadQueue } from "@/uploads/upload-queue-store";
+import { SidebarPanelLazyBoundary } from "@/components/ui/sidebar-panel-lazy-boundary";
+import { toast } from "@/components/ui/toast";
+import { clearUploadQueue, getUploadItems, uploadQueueSummary } from "@/uploads/upload-queue-store";
+import type { SignOutUploadsDialogProps } from "@/components/uploads/SignOutUploadsDialog";
+
+function LogOutWithoutPrompt({ onConfirm }: SignOutUploadsDialogProps) {
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void onConfirm();
+  }, [onConfirm]);
+  return null;
+}
+
+// Without its chunk the prompt can't show; logging out as asked beats leaving the person behind an error card with no way out.
+const SignOutUploadsDialog = lazy<ComponentType<SignOutUploadsDialogProps>>(() =>
+  import("@/components/uploads/UploadsLazy").then(
+    (m) => ({ default: m.SignOutUploadsDialog }),
+    () => ({ default: LogOutWithoutPrompt }),
+  ),
+);
 
 const LANGUAGES: { code: "en" | "zh-TW"; labelKey: string }[] = [
   { code: "en", labelKey: "userMenu.languageEn" },
@@ -49,16 +71,24 @@ export function UserMenu({ variant = "row", bell, uploads }: { variant?: "row" |
   const tour = useTour();
   const mac = isMacPlatform();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   if (!user) return null;
 
-  async function handleLogout(): Promise<void> {
-    await logout();
+  /** Never rejects; false when the server didn't sign the person out. */
+  async function handleLogout(): Promise<boolean> {
+    try {
+      await logout();
+    } catch (err) {
+      toast({ title: err instanceof ApiFail ? t(`errors.${err.code}`, { defaultValue: t("errors.fallback") }) : t("errors.fallback"), variant: "destructive" });
+      return false;
+    }
     release(); // search text belongs to the user signing out: clear it (#369)
     clearUploadQueue();
     // Sign-out deliberately omits `?next=` (#131): it means "leaving", not "blocked" (contrast `useSessionGate` in `auth/guards.tsx`). `ChangePasswordPage` and `NotePage` session expiry also go to bare `/login`.
     navigate("/login", { replace: true });
+    return true;
   }
 
   // i18next already writes the language to localStorage after changeLanguage.
@@ -220,14 +250,49 @@ export function UserMenu({ variant = "row", bell, uploads }: { variant?: "row" |
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem onSelect={() => void handleLogout()}>{t("userMenu.logout")}</DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={(event) => {
+            // A stopped upload never resumes, so this asks first, as closing the tab does.
+            if (uploadQueueSummary(getUploadItems()).active === 0) {
+              void handleLogout();
+              return;
+            }
+            event.preventDefault();
+            setMenuOpen(false);
+            setConfirmLogout(true);
+          }}
+        >
+          {t("userMenu.logout")}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
-  if (avatar || bell === undefined) return menu;
+  const logoutPrompt = confirmLogout && (
+    <SidebarPanelLazyBoundary chunk="uploads">
+      <SignOutUploadsDialog
+        onConfirm={async () => {
+          if (!(await handleLogout())) setConfirmLogout(false);
+        }}
+        onCancel={() => setConfirmLogout(false)}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          triggerRef.current?.focus();
+        }}
+      />
+    </SidebarPanelLazyBoundary>
+  );
+  if (avatar || bell === undefined) {
+    return (
+      <>
+        {menu}
+        {logoutPrompt}
+      </>
+    );
+  }
   return (
     <div className="group/slot relative" {...{ [SIDEBAR_PANEL_ANCHOR_ATTR]: "" }}>
       {menu}
+      {logoutPrompt}
       {/* right edge = 6 px trigger padding + 16 px gear + 12 px gap = 34 px; the 8 px coarse-pointer hit extension stays 4 px clear of the gear. The name's mr-10 (40 px) + 8 px flex gap + 16 px gear + 6 px padding reserves 70 px = bell's 28 px box + 34 px, plus 8 px before the bell.
           With the upload pill the reserve grows by its widest form plus the 4 px gap (16 px on coarse pointers, so the two 8 px hit extensions don't overlap). The pill's width is estimated from its classes, not measured: 36 px of padding, ring and gap plus roughly 56 px of 12 px tabular text for "10 · 100%". */}
       <div className="absolute right-[34px] top-1/2 flex -translate-y-1/2 items-center gap-1 pointer-coarse:gap-4">

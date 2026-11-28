@@ -1,4 +1,4 @@
-// Uploads always go through the real route; the attachment size can be set exactly: PNG signature 8 bytes + padding (`detectImageMimeType` accepts only the full signature).
+// Uploads always go through the real route; the attachment size can be set exactly: PNG signature 8 bytes + padding (`detectRasterImageMimeType` accepts only the full signature).
 import { readdir, writeFile } from "node:fs/promises";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import type { Pool } from "pg";

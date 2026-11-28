@@ -12,6 +12,12 @@ import { ICON_28_HIT } from "./ui/hit-area";
 import { stubLayoutTier } from "@/test/layout-tier";
 import { pressTrigger } from "@/test/menu-trigger";
 import { getUploadItems, putUpload, resetUploadQueueForTest } from "@/uploads/upload-queue-store";
+import { toast } from "@/components/ui/toast";
+
+vi.mock("@/components/ui/toast", async (importOriginal) => {
+  const m = await importOriginal<typeof import("@/components/ui/toast")>();
+  return { ...m, toast: vi.fn(m.toast) };
+});
 
 const ACCENT_STORAGE_KEY = "knotebook:accent";
 
@@ -96,6 +102,110 @@ describe("UserMenu log out", () => {
     await openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
     await waitFor(() => expect(getUploadItems()).toEqual([]));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  function stubLogout() {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/auth/me") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+      if (url === "/api/auth/logout" && init?.method === "POST") return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return () => fetchMock.mock.calls.filter(([url]) => String(url) === "/api/auth/logout").length;
+  }
+
+  it.each(["uploading", "writing"] as const)("asks first while an upload is %s; Cancel keeps the session and the upload", async (status) => {
+    await i18n.changeLanguage("en");
+    const logouts = stubLogout();
+    putUpload({ id: "x", noteId: "n", blockId: "b", fileName: "clip.mp4", size: 10, loaded: 2, expectedUrl: "", status });
+    renderMenu();
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Log out and stop uploads?" });
+    expect(dialog).toHaveTextContent("Uploads still running stop when you log out");
+    expect(logouts()).toBe(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(logouts()).toBe(0);
+    expect(getUploadItems().map((i) => i.status)).toEqual([status]);
+    expect(screen.getByRole("button", { name: "Plain" })).toBeInTheDocument();
+  });
+
+  it("confirming logs out and clears the queue", async () => {
+    await i18n.changeLanguage("en");
+    const logouts = stubLogout();
+    putUpload({ id: "x", noteId: "n", blockId: "b", fileName: "clip.mp4", size: 10, loaded: 2, expectedUrl: "", status: "uploading" });
+    renderMenu();
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+    const dialog = await screen.findByRole("dialog", { name: "Log out and stop uploads?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Log out" }));
+    await waitFor(() => expect(getUploadItems()).toEqual([]));
+    expect(logouts()).toBe(1);
+  });
+
+  it("the phone's avatar menu asks the same way", async () => {
+    await i18n.changeLanguage("en");
+    const logouts = stubLogout();
+    putUpload({ id: "x", noteId: "n", blockId: "b", fileName: "clip.mp4", size: 10, loaded: 2, expectedUrl: "", status: "uploading" });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter>
+            <UserMenu variant="avatar" />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+    const dialog = await screen.findByRole("dialog", { name: "Log out and stop uploads?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(logouts()).toBe(0);
+    expect(getUploadItems()).toHaveLength(1);
+  });
+
+  it.each([
+    ["with no upload running", "failed"],
+    ["from the prompt", "uploading"],
+  ] as const)("a log-out the server refuses %s shows an error toast and keeps the session and the queue, with no unhandled rejection", async (_label, status) => {
+    await i18n.changeLanguage("en");
+    const unhandled = vi.fn();
+    window.addEventListener("unhandledrejection", unhandled);
+    process.on("unhandledRejection", unhandled);
+    try {
+      vi.mocked(toast).mockClear();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url === "/api/auth/me") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+          if (url === "/api/auth/logout") return Promise.resolve(fakeResponse({ ok: false, status: 503, json: () => Promise.resolve({ error: { code: "server_busy", message: "x" } }) }));
+          throw new Error(`unexpected fetch: ${url}`);
+        }),
+      );
+      putUpload({ id: "x", noteId: "n", blockId: "b", fileName: "clip.mp4", size: 10, loaded: 2, expectedUrl: "", status });
+      renderMenu();
+      await openMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+      if (status === "uploading") {
+        const dialog = await screen.findByRole("dialog", { name: "Log out and stop uploads?" });
+        fireEvent.click(within(dialog).getByRole("button", { name: "Log out" }));
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      }
+      await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: "destructive" })));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(getUploadItems().map((i) => i.status)).toEqual([status]);
+      expect(screen.getByRole("button", { name: "Plain" })).toBeInTheDocument();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("unhandledrejection", unhandled);
+      process.off("unhandledRejection", unhandled);
+    }
   });
 });
 

@@ -4,7 +4,7 @@ import { ApiFail } from "@/api/client";
 import i18n from "@/i18n";
 import { safeMediaUrl } from "@/lib/media-url";
 import { FILE_NAME_LINK } from "@/components/file-preview/file-preview-target";
-import { putUpload, removeUpload, resetUploadQueueForTest, type UploadItem } from "@/uploads/upload-queue-store";
+import { getUploadItems, putUpload, removeUpload, resetUploadQueueForTest, type UploadItem } from "@/uploads/upload-queue-store";
 
 const runner = vi.hoisted(() => ({ retryUpload: vi.fn(() => Promise.resolve()) }));
 vi.mock("@/uploads/upload-runner", () => runner);
@@ -57,6 +57,7 @@ beforeEach(async () => {
   await i18n.changeLanguage("en");
   resetUploadQueueForTest();
   runner.retryUpload.mockClear();
+  document.querySelector("[data-upload-announcer]")?.replaceChildren();
 });
 
 afterEach(() => {
@@ -219,6 +220,166 @@ describe("upload state on the block (queue item for this note and block)", () =>
     const { editor } = mount([videoBlock()], { noteId: "note-1" });
     putUpload(item());
     expect(await editor.blocksToFullHTML(editor.document)).not.toContain("kn-upload-status");
+  });
+});
+
+describe("a failed item whose block no longer waits for it", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const interrupted = () => new ApiFail(0, "upload_interrupted", "x");
+  const refused = { ok: false as const, reason: "tooLarge" as const, limitBytes: 100 * MB };
+  const paragraph = { id: "p1", type: "paragraph", content: "x" };
+
+  it.each([
+    ["a pre-check refusal", { precheck: refused }],
+    ["a failure with Retry", { error: interrupted() }],
+  ])("%s goes away once the block gets a URL another way (the Embed tab): off the block and out of the queue", async (_label, over) => {
+    const { editor, el } = mount([videoBlock()], { noteId: "note-1" });
+    putUpload(item({ status: "failed", ...over }));
+    expect(statusOf(el, "b1").style.display).toBe("");
+    editor.updateBlock("b1", { props: { url: "https://example.com/talk.mp4" } } as never);
+    expect(statusOf(el, "b1").style.display).toBe("none");
+    await settle();
+    expect(getUploadItems()).toEqual([]);
+  });
+
+  it("a file the server already has is reported as no longer placed instead", async () => {
+    const { editor } = mount([videoBlock()], { noteId: "note-1" });
+    putUpload(item({ status: "failed", error: interrupted(), stored: true }));
+    editor.updateBlock("b1", { props: { url: "https://example.com/talk.mp4" } } as never);
+    await settle();
+    expect(getUploadItems()).toEqual([expect.objectContaining({ id: "upload-1", status: "unplaced" })]);
+  });
+
+  it("a running upload is left to the runner when the URL changes", async () => {
+    const { editor, el } = mount([videoBlock()], { noteId: "note-1" });
+    putUpload(item());
+    editor.updateBlock("b1", { props: { url: "https://example.com/talk.mp4" } } as never);
+    expect(statusOf(el, "b1").dataset.uploadState).toBe("uploading");
+    await settle();
+    expect(getUploadItems()).toEqual([expect.objectContaining({ status: "uploading" })]);
+  });
+
+  it.each([
+    ["a pre-check refusal", { precheck: refused }],
+    ["a failure with Retry", { error: interrupted() }],
+  ])("%s leaves the queue when its block is deleted", async (_label, over) => {
+    const { editor } = mount([paragraph, videoBlock()], { noteId: "note-1" });
+    putUpload(item({ status: "failed", ...over }));
+    putUpload(item({ id: "upload-2", blockId: "other", status: "failed", error: interrupted() }));
+    editor.removeBlocks(["b1"]);
+    await settle();
+    expect(getUploadItems().map((i) => i.id)).toEqual(["upload-2"]);
+  });
+
+  it("a block turned into a paragraph counts as deleted", async () => {
+    const { editor } = mount([paragraph, videoBlock()], { noteId: "note-1" });
+    putUpload(item({ status: "failed", error: interrupted() }));
+    editor.updateBlock("b1", { type: "paragraph" } as never);
+    await settle();
+    expect(getUploadItems()).toEqual([]);
+  });
+
+  it("a deleted block's stored file is reported as no longer placed", async () => {
+    const { editor } = mount([paragraph, videoBlock()], { noteId: "note-1" });
+    putUpload(item({ status: "failed", error: interrupted(), stored: true }));
+    editor.removeBlocks(["b1"]);
+    await settle();
+    expect(getUploadItems()).toEqual([expect.objectContaining({ status: "unplaced" })]);
+  });
+
+  it("keeps the item when the block is only moved, re-rendered, or the editor closes (leaving the note)", async () => {
+    const { editor } = mount([paragraph, videoBlock(), { id: "p2", type: "paragraph", content: "y" }], { noteId: "note-1" });
+    putUpload(item({ status: "failed", error: interrupted() }));
+    editor.moveBlocksDown("b1");
+    editor.updateBlock("b1", { props: { name: "renamed.mp4" } } as never);
+    await settle();
+    expect(getUploadItems()).toHaveLength(1);
+    const m = mounted.splice(0)[0]!;
+    m.editor.unmount();
+    m.el.remove();
+    await settle();
+    expect(getUploadItems()).toHaveLength(1);
+  });
+
+  it("a running upload whose block is deleted stays (the runner reports it as no longer placed)", async () => {
+    const { editor } = mount([paragraph, videoBlock()], { noteId: "note-1" });
+    putUpload(item());
+    editor.removeBlocks(["b1"]);
+    await settle();
+    expect(getUploadItems()).toEqual([expect.objectContaining({ status: "uploading" })]);
+  });
+
+  it("an editor bound to no note, or to another note, touches nothing", async () => {
+    const unbound = mount([paragraph, videoBlock()]);
+    const other = mount([paragraph, videoBlock()], { noteId: "note-2" });
+    putUpload(item({ status: "failed", error: interrupted() }));
+    unbound.editor.removeBlocks(["b1"]);
+    other.editor.removeBlocks(["b1"]);
+    await settle();
+    expect(getUploadItems()).toHaveLength(1);
+  });
+});
+
+describe("upload changes announced to screen readers", () => {
+  const region = () => document.querySelector<HTMLElement>('[role="status"][data-upload-announcer]');
+
+  it("start, all bytes sent, and the reason of a failure are announced politely; percent ticks are not", () => {
+    mount([videoBlock()], { noteId: "note-1" });
+    expect(region()).not.toBeNull();
+    expect(region()!.className).toContain("sr-only");
+    putUpload(item({ loaded: 0 }));
+    expect(region()!.textContent).toBe("Uploading clip.mp4");
+    region()!.textContent = "";
+    putUpload(item({ loaded: 120 * MB }));
+    expect(region()!.textContent).toBe("");
+    putUpload(item({ status: "writing" }));
+    expect(region()!.textContent).toBe("clip.mp4: Saving to the note…");
+    putUpload(item({ status: "failed", error: new ApiFail(0, "upload_interrupted", "x") }));
+    expect(region()!.textContent).toBe("clip.mp4: The upload was interrupted. Check your connection and try again.");
+    region()!.textContent = "";
+    putUpload(item({ status: "failed", error: new ApiFail(0, "upload_interrupted", "x"), retrying: true }));
+    expect(region()!.textContent).toBe("");
+  });
+
+  it("a pre-check refusal is announced with its reason", () => {
+    mount([videoBlock()], { noteId: "note-1" });
+    putUpload(item({ status: "failed", precheck: { ok: false, reason: "noRoom", roomBytes: 180 * MB } }));
+    expect(region()!.textContent).toBe("clip.mp4: This file is 240 MB; this space has 180 MB left.");
+  });
+
+  it("the file landing in its block is announced once; an item that just leaves is not", () => {
+    const { editor } = mount([videoBlock()], { noteId: "note-1" });
+    putUpload(item({ status: "writing" }));
+    editor.updateBlock("b1", { props: { url: "/api/uploads/u1", name: "clip.mp4" } } as never);
+    removeUpload("upload-1");
+    expect(region()!.textContent).toBe("clip.mp4 uploaded");
+
+    region()!.textContent = "";
+    putUpload(item({ id: "upload-2", status: "writing", expectedUrl: "/api/uploads/u1" }));
+    region()!.textContent = "";
+    removeUpload("upload-2");
+    expect(region()!.textContent).toBe("");
+  });
+
+  it("a write that found the block holding another file (no longer placed) is not announced as uploaded", () => {
+    const { editor } = mount([videoBlock()], { noteId: "note-1" });
+    putUpload(item({ status: "writing" }));
+    editor.updateBlock("b1", { props: { url: "https://example.com/talk.mp4" } } as never);
+    region()!.textContent = "";
+    putUpload(item({ status: "unplaced", stored: true }));
+    expect(region()!.textContent).toBe("");
+  });
+
+  it("an item already in the queue when the block renders is not announced again", () => {
+    putUpload(item({ status: "failed", error: new ApiFail(0, "upload_interrupted", "x") }));
+    mount([videoBlock()], { noteId: "note-1" });
+    expect(region()!.textContent).toBe("");
+  });
+
+  it("blocks of an editor bound to no note announce nothing", () => {
+    mount([videoBlock()]);
+    putUpload(item());
+    expect(region()?.textContent ?? "").toBe("");
   });
 });
 

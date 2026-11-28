@@ -5,7 +5,7 @@ import { BLOCKED_MEDIA_URL } from "@/lib/media-url";
 import { storageQuotaDescription } from "@/lib/storage-quota-text";
 import { uploadErrorKey } from "@/lib/upload-error-text";
 import { precheckMessage } from "@/uploads/precheck";
-import { getUploadItems, subscribeUploads, type UploadItem } from "@/uploads/upload-queue-store";
+import { dropUnplaceableUpload, getUploadItems, subscribeUploads, type UploadItem } from "@/uploads/upload-queue-store";
 import { isUploadRetryable, uploadRetryWaitMs } from "@/uploads/upload-rules";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple; repo convention (as in shared note-schema-config.ts)
@@ -85,6 +85,69 @@ function itemPercent(item: UploadItem): number {
   return Math.floor((Math.min(item.loaded, item.size) / item.size) * 100);
 }
 
+type T = typeof i18n.t;
+
+function failureReason(item: UploadItem, t: T): string | undefined {
+  if (item.precheck) return precheckMessage(item, item.precheck, t);
+  if (item.error) return t(uploadErrorKey(item.error, { name: item.fileName, type: "" }) ?? "errors.fallback", { defaultValue: t("errors.fallback") });
+  return undefined;
+}
+
+let announcer: HTMLElement | undefined;
+
+/** Called when a file block first renders, so the region is in the page before it has anything to say: one added together with its text is often not read out. */
+function ensureAnnouncer(): HTMLElement {
+  if (!announcer?.isConnected) {
+    announcer = el("div", "sr-only");
+    announcer.setAttribute("role", "status");
+    announcer.dataset.uploadAnnouncer = "";
+    document.body.append(announcer);
+  }
+  return announcer;
+}
+
+/** Per note and block, not per node view: writing the URL re-creates the block's node view before the item leaves the queue. */
+const heard = new Map<string, { item: UploadItem; key: string }>();
+
+function milestoneKey(item: UploadItem, t: T): string {
+  return item.status === "failed" ? `${item.id} failed ${failureReason(item, t) ?? ""}` : `${item.id} ${item.status}`;
+}
+
+function blockUrl(editor: AnyEditor, blockId: string): string | undefined {
+  try {
+    return editor.getBlock(blockId)?.props?.url;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Starts, the last byte sent, landings and failures are announced; percent ticks are not. `initial`: what a block shows as it renders is not news. */
+function hear(noteId: string, blockId: string, item: UploadItem | undefined, editor: AnyEditor, initial: boolean): void {
+  const t = i18n.t.bind(i18n);
+  const slot = `${noteId}\n${blockId}`;
+  const before = heard.get(slot);
+  const key = item && milestoneKey(item, t);
+  if (item && key !== undefined) heard.set(slot, { item, key });
+  else heard.delete(slot);
+  if (initial || key === before?.key) return;
+  const say = (text: string) => {
+    ensureAnnouncer().textContent = text;
+  };
+  if (!item) {
+    const gone = before !== undefined && !getUploadItems().some((i) => i.id === before.item.id);
+    // Only the write changes the block's URL as its item leaves; a replaced or cleared item leaves the block as it was.
+    const url = gone && before.item.status === "writing" ? blockUrl(editor, blockId) : undefined;
+    if (before && url !== undefined && url !== before.item.expectedUrl) say(t("uploadBlock.announceDone", { name: before.item.fileName }));
+    return;
+  }
+  if (item.status === "uploading") say(t("uploadBlock.announceStart", { name: item.fileName }));
+  else if (item.status === "writing") say(t("uploadBlock.announce", { name: item.fileName, text: t("uploadBlock.saving") }));
+  else {
+    const reason = failureReason(item, t);
+    if (reason !== undefined) say(t("uploadBlock.announce", { name: item.fileName, text: reason }));
+  }
+}
+
 /** Returns how long until the countdown needs redrawing, or null. */
 function drawStatus(root: HTMLElement, item: UploadItem, blockType: string): number | null {
   const t = i18n.t.bind(i18n);
@@ -112,11 +175,7 @@ function drawStatus(root: HTMLElement, item: UploadItem, blockType: string): num
     children.push(bar);
     if (item.status === "writing") children.push(el("p", "text-muted-foreground", t("uploadBlock.saving")));
   } else {
-    const reason = item.precheck
-      ? precheckMessage(item, item.precheck, t)
-      : item.error
-        ? t(uploadErrorKey(item.error, { name: item.fileName, type: "" }) ?? "errors.fallback", { defaultValue: t("errors.fallback") })
-        : undefined;
+    const reason = failureReason(item, t);
     if (reason !== undefined) children.push(el("p", "text-destructive", reason));
     // The upload toast is skipped while this block is on screen, so the hint on whom to ask lives here.
     if (item.error?.code === "storage_quota_exceeded") children.push(el("p", "text-muted-foreground", storageQuotaDescription(item.error, t)));
@@ -162,18 +221,45 @@ function findItem(editor: AnyEditor, blockId: string): UploadItem | undefined {
   return found;
 }
 
+const FILE_BLOCK_TYPES = new Set(["image", "audio", "video", "file"]);
+
+/** Called once the node view is destroyed. A move or a re-render destroys it too, and leaving the note destroys the views with the block still in the editor's document. */
+function dropIfBlockGone(editor: AnyEditor, blockId: string): void {
+  const noteId = editorNotes.get(editor);
+  if (noteId === undefined) return;
+  queueMicrotask(() => {
+    let block: { type: string } | undefined;
+    try {
+      block = editor.getBlock(blockId);
+    } catch {
+      return;
+    }
+    if (block && FILE_BLOCK_TYPES.has(block.type)) return;
+    for (const item of getUploadItems()) if (item.noteId === noteId && item.blockId === blockId) dropUnplaceableUpload(item.id);
+  });
+}
+
 function attachUploadStatus(dom: HTMLElement, block: FileBlockLike, editor: AnyEditor): () => void {
   const wrapper = dom.querySelector<HTMLElement>(".bn-file-block-content-wrapper") ?? dom;
   const status = el("div", "kn-upload-status w-full space-y-1 py-1 text-xs");
   status.style.display = "none";
   wrapper.append(status);
   const addButton = wrapper.querySelector<HTMLElement>(".bn-add-file-button");
+  const noteId = editorNotes.get(editor);
+  if (noteId !== undefined) ensureAnnouncer();
 
   let shown: UploadItem | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const update = (force = false) => {
-    const item = findItem(editor, block.id);
-    if (item === shown && !force) return;
+  const update = (force = false, initial = false) => {
+    let item = findItem(editor, block.id);
+    // The block got a file another way (the Embed tab, another person): an old failure no longer describes it.
+    if (item && !isActive(item) && item.expectedUrl !== (block.props.url ?? "")) {
+      const stale = item.id;
+      queueMicrotask(() => dropUnplaceableUpload(stale));
+      item = undefined;
+    }
+    if (noteId !== undefined && (item !== shown || initial)) hear(noteId, block.id, item, editor, initial);
+    if (item === shown && !force && !initial) return;
     shown = item;
     clearTimeout(timer);
     timer = undefined;
@@ -188,7 +274,7 @@ function attachUploadStatus(dom: HTMLElement, block: FileBlockLike, editor: AnyE
     const redrawIn = drawStatus(status, item, block.type);
     if (redrawIn !== null) timer = setTimeout(() => update(true), redrawIn);
   };
-  update();
+  update(false, true);
   const unsubscribe = subscribeUploads(() => update());
   return () => {
     unsubscribe();
@@ -240,6 +326,7 @@ export function withUploadStatus<Spec extends RenderableSpec>(spec: Spec): Spec 
             detachStatus();
             detachLink();
             output.destroy?.();
+            dropIfBlockGone(editor, block.id);
           },
         };
       },

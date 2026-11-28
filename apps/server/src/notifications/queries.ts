@@ -105,7 +105,7 @@ export async function listNotifications(db: DbOrTx, input: { userId: string; bef
           noteId: open ? r.noteId : null,
           noteTitle: open ? title : null,
           blockId: open ? r.blockId : null,
-          fileName: r.uploadFileName ?? uploadServedName(null, r.uploadMime ?? "", r.uploadId!),
+          fileName: uploadServedName(r.uploadFileName, r.uploadMime ?? "", r.uploadId!),
           isNew: r.isNew,
         };
       }

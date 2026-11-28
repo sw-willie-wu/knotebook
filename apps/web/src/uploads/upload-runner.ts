@@ -17,7 +17,7 @@ import {
 import { reportUploadFinished } from "./report-upload-finished";
 import { isUploadRetryable, uploadRetryWaitMs } from "./upload-rules";
 import { xhrUpload } from "./xhr-upload";
-import { writeUploadedBlock } from "./yjs-block-write";
+import { uploadBlockWaits, writeUploadedBlock } from "./yjs-block-write";
 
 /**
  * The connection keeps retrying for an editor's sake and never gives up on its own; this covers one
@@ -67,9 +67,9 @@ function writeRefusal(state: CollabState): ApiFail {
   return new ApiFail(403, "upload_write_rejected", "The note can no longer be edited");
 }
 
-// Dismissed items have no use for the file or the connection any more.
+// Dismissed items, and items whose place the editor saw go, have no use for the file or the connection any more.
 subscribeUploads(() => {
-  const ids = new Set(getUploadItems().map((item) => item.id));
+  const ids = new Set(getUploadItems().flatMap((item) => (item.status === "unplaced" ? [] : [item.id])));
   for (const [id, run] of runs) if (!ids.has(id)) stopRun(id, run, { forget: true });
 });
 
@@ -200,6 +200,21 @@ export async function retryUpload(id: string): Promise<void> {
       fail(id, run, { precheck: checked });
       return;
     }
+    // A block deleted or given another file meanwhile would take the whole file again only to end up no longer placed.
+    const handle = holdConnection(item.noteId, run);
+    const outcome = await waitWritable(handle);
+    if (!runs.has(id)) return;
+    if (outcome !== "ok") {
+      const error = outcome === "timeout" ? INTERRUPTED() : writeRefusal(handle.getState());
+      releaseHandle(run);
+      fail(id, run, { error });
+      return;
+    }
+    if (!uploadBlockWaits(handle.doc, item.blockId, item.expectedUrl)) {
+      stopRun(id, run, { forget: true });
+      patchUpload(id, { status: "unplaced" });
+      return;
+    }
   } finally {
     run.retrying = false;
     patchUpload(id, { retrying: undefined });
@@ -252,11 +267,7 @@ async function upload(id: string, run: Run) {
 
 type WriteWait = "ok" | "rejected" | "timeout";
 
-async function write(id: string, run: Run, attempt: number) {
-  const item = itemOf(id);
-  const handle = run.handle;
-  const stored = run.stored;
-  if (!item || !handle || !stored) return;
+async function waitWritable(handle: NoteConnectionHandle): Promise<WriteWait> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   // The timer settles this before `release()` runs: release resolves the pending `whenWritable`
   // with "rejected", which would read as lost access.
@@ -265,6 +276,15 @@ async function write(id: string, run: Run, attempt: number) {
     void handle.whenWritable().then(resolve);
   });
   clearTimeout(timer);
+  return outcome;
+}
+
+async function write(id: string, run: Run, attempt: number) {
+  const item = itemOf(id);
+  const handle = run.handle;
+  const stored = run.stored;
+  if (!item || !handle || !stored) return;
+  const outcome = await waitWritable(handle);
   if (run.attempt !== attempt) return;
   if (outcome !== "ok") {
     const error = outcome === "timeout" ? INTERRUPTED() : writeRefusal(handle.getState());
