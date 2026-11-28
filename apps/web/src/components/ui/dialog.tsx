@@ -10,24 +10,25 @@ export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogPortal = DialogPrimitive.Portal;
 export const DialogClose = DialogPrimitive.Close;
 
+/** Exported for a non-modal dialog that must draw the same backdrop itself (Radix renders its Overlay only in modal mode). */
+export const dialogOverlayClass =
+  "fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out " +
+  "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0";
+
 export const DialogOverlay = forwardRef<
   ElementRef<typeof DialogPrimitive.Overlay>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
-    className={cn(
-      "fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out " +
-        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-      className,
-    )}
+    className={cn(dialogOverlayClass, className)}
     {...props}
   />
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 /**
- * `size="panel"` (management panels and the shortcuts dialog): the frame is transparent with no border or shadow (ManagementShell draws the tray and cards); a bottom sheet on phones.
+ * `size="panel"` (management panels, the shortcuts dialog and the file viewer): the frame is transparent with no border or shadow (ManagementShell draws the tray and cards); a bottom sheet on phones.
  * Heights use `dvh`: iOS Safari's `vh` is taller than the visible height. `max-w` leaves each side at least the larger of 2vw and the left/right safe area (landscape edges stay out of the sensor area).
  * No built-in Close is rendered: the panel's right card has its own labelled ✕. The grid track is `minmax(0,1fr)`: an `auto` track grows with tray content and the right card would never scroll. `lg` was removed: using it is a type error.
  */
