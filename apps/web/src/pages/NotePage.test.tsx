@@ -2832,6 +2832,32 @@ describe("NotePage x in the trash", () => {
           };
           return opts.holdRestore ? held.then(done) : Promise.resolve(done());
         }
+        if (url === "/api/trash/purge" && method === "POST") {
+          const { ids } = JSON.parse(String(init?.body)) as { ids: string[] };
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ purged: ids, skipped: [] }) }));
+        }
+        if ((url === `/api/trash/${NOTE.id}` || url === `/api/trash/${G_NOTE.id}`) && method === "GET") {
+          const matched = url.endsWith(NOTE.id) ? NOTE : G_NOTE;
+          return Promise.resolve(
+            trashed
+              ? fakeResponse({
+                  ok: true,
+                  status: 200,
+                  json: () =>
+                    Promise.resolve({
+                      id: matched.id,
+                      title: matched.title,
+                      deletedAt: "2026-10-20T00:00:00.000Z",
+                      purgeAt: "2026-10-27T00:00:00.000Z",
+                      deletedBy: { handle: "tester", displayName: "Tester" },
+                      group: matched.group,
+                      folderPath: [],
+                      ydoc: "AAA=",
+                    }),
+                })
+              : fakeResponse({ ok: false, status: 404, json: () => Promise.resolve({ error: { code: "not_found", message: "x" } }) }),
+          );
+        }
         if (url === `/api/notes/by-path/${NOTE.ownerHandle}/${NOTE.slug}` && method === "GET") {
           return Promise.resolve(reply(NOTE));
         }
@@ -2913,8 +2939,9 @@ describe("NotePage x in the trash", () => {
     renderAt(entry);
     expect(await screen.findByRole("heading", { level: 2, name: IN_TRASH })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete permanently" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Go to trash" })).toBeInTheDocument();
-    // The card is wrapped in placeholderCard: the narrow-screen navigation exit (NarrowTopBar's sidebar button, #115) is there too (jsdom does not apply xl:hidden).
+    // The preview header includes the narrow-screen navigation exit (SidebarDrawerButton, #115) (jsdom does not apply xl:hidden).
     expect(screen.getByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
     await settle();
     expect(toastTitles()).not.toContain(LINK_INVALID);
@@ -2930,6 +2957,20 @@ describe("NotePage x in the trash", () => {
     expect(screen.getByText(LINK_INVALID)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: IN_TRASH })).toBeNull();
   }
+
+  it("by-path returns 404 in_trash (with noteId) -> read-only preview with Delete permanently that purges and returns home", async () => {
+    const { calls } = stubTrashed();
+    renderAt("/n/tester/my-note");
+    expect(await screen.findByRole("heading", { level: 1, name: "My Note" })).toBeInTheDocument();
+    expect(screen.getByText("This note has no content.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    const dialog = await screen.findByRole("dialog", { name: "Permanently delete 1 note?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    expect(calls).toContain("POST /api/trash/purge");
+  });
 
   it("by-path returns 404 in_trash (with noteId) -> a card; no link-invalid toast, no navigation back to the home page", async () => {
     stubTrashed();

@@ -18,11 +18,17 @@ export interface CollabEditorBaseInput {
 // Tests that build an editor use this too, so it can't diverge from the real settings.
 export const NOTE_TABLE_SETTINGS = { cellTextColor: true, cellBackgroundColor: true } as const;
 
-export function buildCollabEditorBase({ doc, awareness, language, user }: CollabEditorBaseInput) {
+export function buildNoteEditorOptionsBase(language: string) {
   return {
     schema: noteSchema,
     tables: NOTE_TABLE_SETTINGS,
     dictionary: language.startsWith("zh") ? blocknoteZhTW : undefined,
+  };
+}
+
+export function buildCollabEditorBase({ doc, awareness, language, user }: CollabEditorBaseInput) {
+  return {
+    ...buildNoteEditorOptionsBase(language),
     collaboration: {
       // BlockNote's collaboration.provider only reads { awareness }.
       provider: { awareness },

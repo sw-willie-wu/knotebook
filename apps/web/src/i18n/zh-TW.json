@@ -769,7 +769,10 @@
     "skippedSuffix_one": "，{{count}} 篇已不在垃圾桶",
     "skippedSuffix_other": "，{{count}} 篇已不在垃圾桶",
     "inTrashTitle": "這篇筆記在垃圾桶裡",
-    "goToTrash": "前往垃圾桶"
+    "goToTrash": "前往垃圾桶",
+    "previewReadonly": "唯讀",
+    "previewEmpty": "這篇筆記沒有內容。",
+    "previewDecodeFailed": "無法顯示這篇筆記的內容。"
   },
   "tags": {
     "label": "標籤",

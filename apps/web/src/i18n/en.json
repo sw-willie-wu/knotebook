@@ -769,7 +769,10 @@
     "skippedSuffix_one": ", {{count}} no longer in the trash",
     "skippedSuffix_other": ", {{count}} no longer in the trash",
     "inTrashTitle": "This note is in the trash",
-    "goToTrash": "Go to trash"
+    "goToTrash": "Go to trash",
+    "previewReadonly": "Read-only",
+    "previewEmpty": "This note has no content.",
+    "previewDecodeFailed": "Couldn't display this note's content."
   },
   "tags": {
     "label": "Tags",

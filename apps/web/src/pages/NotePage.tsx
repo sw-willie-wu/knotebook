@@ -581,6 +581,11 @@ export default function NotePage() {
   useEffect(() => {
     shownInTrashIdRef.current = inTrashId;
   }, [inTrashId]);
+  useEffect(() => {
+    if (!inTrashId) return;
+    setActiveNoteId(inTrashId);
+    return () => clearActiveNoteId(inTrashId);
+  }, [inTrashId, setActiveNoteId, clearActiveNoteId]);
   const linkInvalid =
     needsResolve &&
     resolveQuery.isError &&
@@ -684,8 +689,8 @@ export default function NotePage() {
 
   let body;
   if (needsResolve && inTrashId !== null) {
-    // The in_trash card renders inside AppShell children (its "go to trash" needs the actions context). After a restore, refetch the resolve layer: success seeds as usual; if permanently deleted it falls to the invalid-link exit.
-    body = placeholderCard(
+    // The in_trash preview renders inside AppShell children (its "go to trash" and sidebar button need shell contexts). After a restore, refetch the resolve layer: success seeds as usual; if permanently deleted it falls to the invalid-link exit.
+    body = (
       <InTrashCard
         noteId={inTrashId}
         onRestored={() => {
@@ -694,7 +699,15 @@ export default function NotePage() {
           focusTitleAfterRestoreRef.current = inTrashId;
           void resolveQuery.refetch();
         }}
-      />,
+        onPurged={() => {
+          if (shownInTrashIdRef.current !== inTrashId) return;
+          void navigate("/", { replace: true });
+        }}
+        onNotFound={() => {
+          if (shownInTrashIdRef.current !== inTrashId) return;
+          void resolveQuery.refetch();
+        }}
+      />
     );
   } else if (needsResolve) {
     // Don't render the old note's NoteEditor/TitleInput/ShareDialog in a transition (gated to undefined above). A resolve-layer 404 also lands here: keep the placeholder while leavingRef navigates.

@@ -22,7 +22,7 @@ import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/Public
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import { AppShellLayout } from "./components/AppShellLayout";
-import { NOTE_ROUTE_PATTERNS } from "./lib/phone-list";
+import { NOTE_ROUTE_PATTERNS, TRASH_PREVIEW_ROUTE } from "./lib/phone-list";
 import { KNOWLEDGE_INDEX_ROUTE_PATTERNS } from "./lib/knowledge-index-path";
 import { SettingsModal } from "./settings/SettingsModal";
 import { GroupModal, GroupSubpathRedirect, LegacyGroupRedirect } from "./components/groups/GroupModal";
@@ -30,6 +30,7 @@ import { AdminModal } from "./components/admin/AdminModal";
 
 // BlockNote and the collab stack (~1.3 MB); scripts/check-bundle-size.mjs keeps them out of the entry bundle.
 const NotePage = lazy(() => import("./pages/NotePage"));
+const TrashPreviewPage = lazy(() => import("./pages/TrashPreviewPage"));
 const KnowledgeIndexPage = lazy(() => import("./pages/KnowledgeIndexPage"));
 
 // Rarely used pages are lazy (#201). LoginPage and HomePage stay in the entry bundle (first screens), and so do
@@ -109,6 +110,18 @@ function KnowledgeIndexRoute() {
       <Suspense fallback={<LazyRouteLoading />}>
         <KnowledgeIndexPage />
         <ChunkLoadBeacon chunk="knowledge-index" />
+      </Suspense>
+    </LazyRouteErrorBoundary>
+  );
+}
+
+function TrashPreviewRoute() {
+  const { id } = useParams();
+  return (
+    <LazyRouteErrorBoundary key="trash-preview" resetKey={id} chunk="trash-preview">
+      <Suspense fallback={<NotePageFallback />}>
+        <TrashPreviewPage />
+        <ChunkLoadBeacon chunk="trash-preview" />
       </Suspense>
     </LazyRouteErrorBoundary>
   );
@@ -227,6 +240,7 @@ export function AppRoutes() {
               {NOTE_ROUTE_PATTERNS.map((path) => (
                 <Route key={path} path={path} element={<NoteRoute />} />
               ))}
+              <Route path={TRASH_PREVIEW_ROUTE} element={<TrashPreviewRoute />} />
               {KNOWLEDGE_INDEX_ROUTE_PATTERNS.map((path) => (
                 <Route key={path} path={path} element={<KnowledgeIndexRoute />} />
               ))}

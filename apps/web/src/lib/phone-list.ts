@@ -3,15 +3,24 @@ import { matchPath } from "react-router";
 import { isKnowledgeIndexPath } from "./knowledge-index-path";
 
 export const NOTE_ROUTE_PATTERNS = ["/notes/:ref", "/n/:handle/:slug", "/g/:groupId/:slug"] as const;
+export const TRASH_PREVIEW_ROUTE = "/trash/:id" as const;
+
+export function trashPreviewPath(noteId: string): string {
+  return `/trash/${encodeURIComponent(noteId)}`;
+}
+
+export function isTrashPreviewPath(pathname: string): boolean {
+  return matchPath({ path: TRASH_PREVIEW_ROUTE, end: true }, pathname) !== null;
+}
 
 /** The backgrounds of `/groups/*` and `/admin/*` are also the list, so `pathname === "/"` alone is not enough. */
 export function isNoteRoutePath(pathname: string): boolean {
   return NOTE_ROUTE_PATTERNS.some((pattern) => matchPath({ path: pattern, end: true }, pathname) !== null);
 }
 
-/** Pages that replace the phone list: a note or a knowledge index. */
+/** Pages that replace the phone list: a note, a trash preview, or a knowledge index. */
 export function isPageRoutePath(pathname: string): boolean {
-  return isNoteRoutePath(pathname) || isKnowledgeIndexPath(pathname);
+  return isNoteRoutePath(pathname) || isTrashPreviewPath(pathname) || isKnowledgeIndexPath(pathname);
 }
 
 export interface PhoneListState {

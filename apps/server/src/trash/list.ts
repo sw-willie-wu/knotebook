@@ -1,9 +1,10 @@
 import { and, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { alias, unionAll, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { TRASH_LIST_LIMIT, type TrashItemDto, type TrashListDto } from "@knotebook/shared";
+import { EMPTY_YDOC_UPDATE_B64, TRASH_LIST_LIMIT, type TrashItemDto, type TrashListDto, type TrashPreviewDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
-import { groupMembers, groupRoles, groups, notes, siteSettings, users } from "../db/schema.js";
+import { groupMembers, groupRoles, groups, noteStates, notes, siteSettings, users } from "../db/schema.js";
 import { folderPathJsonSql, NOTES_FOLDER_ID } from "../folders/sql.js";
+import { resolveTrashedNoteAccess } from "../notes/service.js";
 
 /** Always LEFT JOINed: a deleted account leaves NULL and the row is still listed. */
 const deleter = alias(users, "deleter");
@@ -30,6 +31,30 @@ function baseColumns(retentionDays: number | null) {
 export interface TrashCursor { deletedAtMs: Date; id: string }
 
 const deletedAtMsExpr = sql`date_trunc('milliseconds', ${notes.deletedAt})`.mapWith(notes.deletedAt);
+
+type TrashItemRow = {
+  id: string;
+  title: string;
+  deletedAt: Date | null;
+  purgeAt: Date | null;
+  deleterHandle: string | null;
+  deleterName: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  folderPath: string[];
+};
+
+function toTrashItemDto(r: TrashItemRow): TrashItemDto {
+  return {
+    id: r.id,
+    title: r.title,
+    deletedAt: r.deletedAt!.toISOString(),
+    purgeAt: r.purgeAt?.toISOString() ?? null,
+    deletedBy: r.deleterHandle === null ? null : { handle: r.deleterHandle, displayName: r.deleterName ?? "" },
+    group: r.groupId === null ? null : { id: r.groupId, name: r.groupName ?? "" },
+    folderPath: r.folderPath,
+  };
+}
 
 export async function listTrashPage(
   db: Db,
@@ -74,21 +99,41 @@ export async function listTrashPage(
     .limit(opts.limit + 1);
 
   const page = rows.slice(0, opts.limit);
-  const items: TrashItemDto[] = page.map(r => ({
-    id: r.id,
-    title: r.title,
-    deletedAt: r.deletedAt!.toISOString(),
-    purgeAt: r.purgeAt?.toISOString() ?? null,
-    deletedBy: r.deleterHandle === null ? null : { handle: r.deleterHandle, displayName: r.deleterName ?? "" },
-    group: r.groupId === null ? null : { id: r.groupId, name: r.groupName ?? "" },
-    folderPath: r.folderPath,
-  }));
+  const items: TrashItemDto[] = page.map(toTrashItemDto);
   return { items, keys: page.map(r => ({ deletedAtMs: r.deletedAtMs, id: r.id })), hasMore: rows.length > opts.limit };
 }
 
 export async function listTrash(db: Db, userId: string, retentionDays: number | null): Promise<TrashListDto> {
   const page = await listTrashPage(db, userId, retentionDays, { limit: TRASH_LIST_LIMIT, after: null });
   return { retentionDays, items: page.items, truncated: page.hasMore };
+}
+
+/** Read-only preview of a single trashed note; returns null when missing, live, or the caller lacks trash rights. */
+export async function loadTrashPreview(
+  db: Db,
+  userId: string,
+  noteId: string,
+  retentionDays: number | null,
+): Promise<TrashPreviewDto | null> {
+  if (!(await resolveTrashedNoteAccess(db, userId, noteId))) return null;
+  const [row] = await db
+    .select({
+      ...baseColumns(retentionDays),
+      groupId: notes.groupId,
+      groupName: groups.name,
+      ydoc: noteStates.ydoc,
+    })
+    .from(notes)
+    .leftJoin(deleter, eq(deleter.id, notes.deletedBy))
+    .leftJoin(groups, eq(groups.id, notes.groupId))
+    .leftJoin(noteStates, eq(noteStates.noteId, notes.id))
+    .where(and(eq(notes.id, noteId), isNotNull(notes.deletedAt)))
+    .limit(1);
+  if (!row) return null;
+  return {
+    ...toTrashItemDto(row),
+    ydoc: row.ydoc ? Buffer.from(row.ydoc).toString("base64") : EMPTY_YDOC_UPDATE_B64,
+  };
 }
 
 export async function readTrashRetentionDays(db: Db): Promise<{ retentionDays: number | null } | undefined> {

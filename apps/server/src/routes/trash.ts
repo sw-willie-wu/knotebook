@@ -1,15 +1,20 @@
 // Purge-all is the client sending every listed id: notes trashed after the list loaded are not purged. Callers without trash rights get the same skipped:not_found as for a nonexistent id.
 // No transaction here; they live in trash/service.ts.
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { TRASH_BATCH_MAX, type NoteDto, type TrashPurgeResultDto, type TrashRestoreResultDto } from "@knotebook/shared";
 import { SITE_SETTINGS_MISSING_MESSAGE } from "../auth/tx/admin-site-settings.js";
 import { isRetryableTxError } from "../db/pg-errors.js";
+import { uploads } from "../db/schema.js";
 import { sendError } from "../http/errors.js";
 import { loadNoteFields, toNoteDto } from "../notes/note-dto.js";
-import { UUID_RE, resolveNoteAccess } from "../notes/service.js";
-import { listTrash, readTrashRetentionDays } from "../trash/list.js";
+import { UUID_RE, resolveNoteAccess, resolveTrashedNoteAccess } from "../notes/service.js";
+import { listTrash, loadTrashPreview, readTrashRetentionDays } from "../trash/list.js";
 import { purgeTrashed, restoreTrashed, type TrashBatchResult, type TrashServiceDeps } from "../trash/service.js";
+import { setUploadResponseHeaders, uploadFilePath } from "../uploads/service.js";
 
 /** Counted on raw ids (before dedup). */
 const idsBodySchema = z.object({ ids: z.array(z.string()).min(1).max(TRASH_BATCH_MAX) }).strict();
@@ -32,6 +37,45 @@ export function trashRoutes(deps: TrashServiceDeps) {
         return sendError(reply, 500, "internal", "Internal server error.");
       }
       return reply.send(await listTrash(deps.db, request.user!.id, row.retentionDays));
+    });
+
+    app.get("/api/trash/:id", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "No note with that id.");
+      const row = await readTrashRetentionDays(deps.db);
+      if (!row) {
+        request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
+        return sendError(reply, 500, "internal", "Internal server error.");
+      }
+      const preview = await loadTrashPreview(deps.db, request.user!.id, id.toLowerCase(), row.retentionDays);
+      if (!preview) return sendError(reply, 404, "not_found", "No note with that id.");
+      reply.header("cache-control", "private, no-store");
+      return reply.send(preview);
+    });
+
+    app.get("/api/trash/:id/uploads/:uploadId", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id, uploadId } = request.params as { id: string; uploadId: string };
+      if (!UUID_RE.test(id) || !UUID_RE.test(uploadId)) {
+        return sendError(reply, 404, "not_found", "No file with that id.");
+      }
+      const noteId = id.toLowerCase();
+      if (!(await resolveTrashedNoteAccess(deps.db, request.user!.id, noteId))) {
+        return sendError(reply, 404, "not_found", "No file with that id.");
+      }
+      const [row] = await deps.db.select().from(uploads).where(eq(uploads.id, uploadId.toLowerCase())).limit(1);
+      // Scoped strictly to this trashed note's own uploads; cross-note upload ids get the same 404.
+      if (!row || row.noteId !== noteId) {
+        return sendError(reply, 404, "not_found", "No file with that id.");
+      }
+      const filePath = uploadFilePath(deps.uploadsDir, row.id);
+      try {
+        await stat(filePath);
+      } catch {
+        request.log.error({ uploadId: row.id }, "DB has upload record but file is missing on disk");
+        return sendError(reply, 404, "not_found", "No file with that id.");
+      }
+      setUploadResponseHeaders(reply, row.mime);
+      return reply.send(createReadStream(filePath));
     });
 
     app.post("/api/trash/restore", { preHandler: app.authenticate }, async (request, reply) => {
