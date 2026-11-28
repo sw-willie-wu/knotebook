@@ -22,6 +22,11 @@ export interface TrashItemDto {
   folderPath: string[];
 }
 
+export interface TrashPreviewDto extends TrashItemDto {
+  /** Base64-encoded Yjs update (`EMPTY_YDOC_UPDATE_B64` when the note was never opened in the editor). */
+  ydoc: string;
+}
+
 export interface TrashListDto {
   retentionDays: number | null;
   items: TrashItemDto[];

@@ -116,8 +116,8 @@ describe("code highlight variables (--code-*)", () => {
   });
 });
 
-describe("latex math colour", () => {
-  it("--code-token-constant (the colour shiki gives LaTeX math) reaches WCAG AA text contrast on --code-background in light and dark", () => {
+describe("constant token colour", () => {
+  it("--code-token-constant (shared by every language for numbers and constants, and by LaTeX for math) reaches WCAG AA text contrast on --code-background in light and dark", () => {
     const { light, dark } = themeBlocks();
     for (const [theme, block] of [["light", light], ["dark", dark]] as const) {
       const color = (name: string) => parseColor(varValue(block, name), `${theme} --${name}`);

@@ -1,7 +1,8 @@
-import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
+import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
 import {
   columnBlockSpec,
   columnListBlockSpec,
+  createKnotebookCodeBlockSpec,
   uploadCategoryOfName,
   UPLOAD_TYPES,
   withGuardedExternalHTML,
@@ -13,6 +14,7 @@ import {
 import { CODE_BLOCK_OPTIONS } from "@/lib/code-highlight";
 import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
+import { withCaseInsensitiveCodeHighlight } from "./code-block-highlight";
 import { withColumnsLayout } from "./columns/layout-extension";
 import { withUploadStatus } from "./upload-block-status";
 
@@ -74,7 +76,8 @@ export const noteSchema = BlockNoteSchema.create({
     mermaid: mermaidSpec(),
     // #96: `defaultBlockSpecs.codeBlock` is created with no options (no languages, no highlighter);
     // they are sealed in the spec closure with no editor-level option (checked on 0.52.1), so this is the only wiring point.
-    codeBlock: createCodeBlockSpec(CODE_BLOCK_OPTIONS),
+    // #590: `createKnotebookCodeBlockSpec` normalizes parsed/typed fence names and dropdown selection; `withCaseInsensitiveCodeHighlight` handles pre-existing mixed-case blocks too.
+    codeBlock: withCaseInsensitiveCodeHighlight(createKnotebookCodeBlockSpec(CODE_BLOCK_OPTIONS)),
     // Applied only to web's schema; returns a new object so shared's spec (used by the headless schema) is unchanged.
     columnList: withColumnsLayout(columnListBlockSpec),
     column: columnBlockSpec,

@@ -1,9 +1,12 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 import type { TrashItemDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { usePurgeTrash, useRestoreTrash, useTrash } from "@/api/trash";
 import { useSession } from "@/auth/useSession";
+import { useActiveNote } from "@/lib/active-note";
+import { trashPreviewPath } from "@/lib/phone-list";
 import { selectAllState, selectionKey } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { selectedTrashIds, splitTrashSections, trashDetailLine, trashItemTitle, trashLocationLine } from "@/lib/trash-display";
@@ -23,7 +26,8 @@ import { PHONE_LIST_HEADER_STICKY, PHONE_LIST_SCROLLER } from "@/components/side
 import { usePhoneListScroll } from "@/components/sidebar/phone-list-scroll";
 
 /**
- * Rows are not links (trashed notes can't be opened). "Empty" sends every id on the list to purge: items trashed afterwards are unaffected; `purgeTrashIds` batches above 200.
+ * Normal-mode rows link to the read-only trash preview (`/trash/:id`); select-mode rows toggle checkboxes instead.
+ * "Empty" sends every id on the list to purge: items trashed afterwards are unaffected; `purgeTrashIds` batches above 200.
  * Focus moves only from the instance that started the action (`focusAfterRef`).
  */
 
@@ -39,7 +43,7 @@ interface RowActions {
   onPurge: (id: string, trigger: HTMLElement | null) => void;
 }
 
-function TrashRow({ item, now, actions }: { item: TrashItemDto; now: number; actions: RowActions }) {
+function TrashRow({ item, now, active, actions }: { item: TrashItemDto; now: number; active: boolean; actions: RowActions }) {
   const { t, i18n } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -49,16 +53,24 @@ function TrashRow({ item, now, actions }: { item: TrashItemDto; now: number; act
       data-node-kind="note"
       data-node-id={item.id}
       title={trashItemTitle(item, { t, locale })}
-      className={cn("group/noterow flex items-center gap-0.5 rounded-md py-1.5 pl-2 pr-0.75 text-[13px] hover:bg-brand-soft hover:text-brand-on-soft", ROW_ICON_ROW)}
+      className={cn(
+        "group/noterow flex items-center gap-0.5 rounded-md py-1.5 pl-2 pr-0.75 text-[13px]",
+        active ? "bg-brand-soft font-medium text-brand-on-soft" : "hover:bg-brand-soft hover:text-brand-on-soft",
+        ROW_ICON_ROW,
+      )}
     >
-      {/* Both lines are <div>, as NoteList recents rows */}
-      <div className="min-w-0 flex-1">
+      <Link
+        to={trashPreviewPath(item.id)}
+        aria-current={active ? "page" : undefined}
+        className="min-w-0 flex-1 rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        {/* Both lines are <div>, as NoteList recents rows */}
         <div className="truncate">{item.title}</div>
         {/* title = full path when the location is truncated; none at root */}
-        <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={trashLocationLine(item) || undefined}>
+        <div className="mt-0.5 truncate text-[11px] font-normal text-muted-foreground" title={trashLocationLine(item) || undefined}>
           {trashDetailLine(item, { now, t, locale })}
         </div>
-      </div>
+      </Link>
       {/* 24px sidebar exception (see button.tsx header); shares hoverReveal("noterow") with the note row ⋮ */}
       <Button
         type="button"
@@ -178,6 +190,7 @@ export function TrashPanel() {
   const { t } = useTranslation();
   const trash = useTrash();
   const { user } = useSession();
+  const { activeNoteId } = useActiveNote();
   const restore = useRestoreTrash();
   const purge = usePurgeTrash();
   const { selection } = useSidebarTabState();
@@ -375,7 +388,7 @@ export function TrashPanel() {
           onToggle={toggleRow}
         />
       ) : (
-        <TrashRow key={item.id} item={item} now={now} actions={rowActions} />
+        <TrashRow key={item.id} item={item} now={now} active={activeNoteId === item.id} actions={rowActions} />
       );
     return (
       <>

@@ -43,6 +43,14 @@ describe("restoreMermaidBlocks", () => {
     expect(out[0]).toEqual({ id: "m1", type: "mermaid", props: { code: "graph TD" } });
     expect(out[1]).toEqual({ type: "mermaid", props: { code: "graph LR" } });
   });
+  it("matches mermaid language case-insensitively (#590)", () => {
+    const out = restoreMermaidBlocks([
+      { type: "codeBlock", props: { language: "Mermaid" }, content: [{ type: "text", text: "graph TD" }] },
+      { type: "codeBlock", props: { language: "MERMAID" }, content: [{ type: "text", text: "graph LR" }] },
+    ]);
+    expect(out[0]).toEqual({ type: "mermaid", props: { code: "graph TD" } });
+    expect(out[1]).toEqual({ type: "mermaid", props: { code: "graph LR" } });
+  });
 });
 
 describe("rebindWikilinks (bind only on a unique hit)", () => {

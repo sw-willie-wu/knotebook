@@ -16,7 +16,7 @@ function convertTypedMermaidFence(trs: readonly Any[], oldState: Any, newState: 
   if (trs.some((tr) => tr.getMeta("y-sync$")?.isChangeOrigin === true)) return null;
 
   const before = oldState.selection.$head;
-  if (before.parent.type.name !== "paragraph" || !/^```\s*mermaid\s$/.test(before.parent.textContent)) return null;
+  if (before.parent.type.name !== "paragraph" || !/^```\s*mermaid\s$/i.test(before.parent.textContent)) return null;
 
   const { $head } = newState.selection;
   if ($head.parent.type.name !== "codeBlock" || $head.parent.attrs.language !== "mermaid" || $head.parent.content.size !== 0) return null;

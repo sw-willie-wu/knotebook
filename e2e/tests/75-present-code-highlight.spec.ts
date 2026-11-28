@@ -60,7 +60,7 @@ test("presentation code block: distinct token colours, theme switch recolours wi
   await page.getByRole("menuitem", { name: "Present" }).click();
   await expect(page.locator(".reveal.ready")).toBeVisible({ timeout: 15_000 });
 
-  const tsCode = '.reveal .slides pre > code[data-kn-code-lang="ts"]';
+  const tsCode = '.reveal .slides pre > code[data-kn-code-lang="typescript"]';
   const tsTokens = `${tsCode} > span[style]`;
   await expect(page.locator(tsTokens).first()).toBeAttached({ timeout: 20_000 });
   await expect(page.locator(tsCode)).toHaveText(/const greeting: string = "hello"; \/\/ note\nfunction add/);

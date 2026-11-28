@@ -483,4 +483,17 @@ describe("#269: on-site links -> wikilink (converted only on cache hit, no fallb
     expect(links.map((n) => n.props!.label)).toEqual(["", "a]b\\"]);
     expect(links.map((n) => n.props!.snapshotTitle)).toEqual(["[Draft] Plan *v2*", "a]b\\"]);
   });
+
+  it("normalizes mixed-case code block languages and Mermaid fences in AI results (#590)", () => {
+    const editor = createTestEditor([{ id: "p", type: "paragraph", content: "x" }]);
+    const md = "```Python\nprint(1)\n```\n\n```LaTeX\n$x$\n```\n\n```TS\nconst a = 1;\n```\n\n```Mermaid\ngraph TD\n  A-->B\n```";
+    const p = prepareAiResult(editor, md, { notes: [], placement: "top" });
+    if ("empty" in p || "invalid" in p) throw new Error("unexpected");
+    expect(p.blocks.map((b) => (b.type === "mermaid" ? "mermaid" : `${b.type}:${(b.props as { language?: string })?.language}`))).toEqual([
+      "codeBlock:python",
+      "codeBlock:latex",
+      "codeBlock:typescript",
+      "mermaid",
+    ]);
+  });
 });

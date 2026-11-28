@@ -83,11 +83,12 @@ describe("SUPPORTED_LANGUAGES", () => {
   });
 
   const MATH = "var(--code-token-constant)";
-  async function latexColorOf(text: string): Promise<string | undefined> {
+  // `exact` compares the trimmed token text, so a token that shiki pads with spaces (or one that is split off) still matches.
+  async function latexColorOf(text: string, exact = false): Promise<string | undefined> {
     const hl = await sharedHighlighter();
     await hl.loadLanguage("latex");
     const { tokens } = hl.codeToTokens(LATEX_SAMPLE, { lang: "latex", theme: hl.getLoadedThemes()[0]!, tokenizeTimeLimit: 0 });
-    const hit = tokens.flat().filter((t) => t.content.includes(text));
+    const hit = tokens.flat().filter((t) => (exact ? t.content.trim() === text : t.content.includes(text)));
     expect(hit.length, `no token contains ${text}`).toBeGreaterThan(0);
     expect(new Set(hit.map((t) => t.color)).size, `${text} spans several colors`).toBe(1);
     return hit[0]!.color;
@@ -97,7 +98,7 @@ describe("SUPPORTED_LANGUAGES", () => {
     expect(await latexColorOf("x_1^2")).toBe(MATH);
     expect(await latexColorOf("\\sum_{i} w_i")).toBe(MATH);
     expect(await latexColorOf("a = b")).toBe(MATH);
-    expect(await latexColorOf(" c ")).toBe(MATH);
+    expect(await latexColorOf("c", true)).toBe(MATH);
   });
 
   it("latex ordinary prose and a text command's argument are not colored as math", async () => {

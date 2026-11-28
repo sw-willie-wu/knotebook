@@ -300,14 +300,15 @@ describe("TrashPanel (normal)", () => {
     ]);
   });
 
-  it("row: second line, title, not a link, data-node-*", async () => {
+  it("row: second line, title, links to /trash/:id in normal mode, data-node-*", async () => {
     stubServer({ items: [P1, P2, W1] });
     renderPanel();
     await waitFor(() => expect(row("w1")).not.toBeNull());
     expect(detail("p1")).toHaveTextContent(/^3 days left$/);
     expect(detail("w1")).toHaveTextContent(/^R&D · Deleted by Amy · 3 days left$/);
     expect(row("p1").getAttribute("title")).toContain("Moved to the trash");
-    expect(within(panel()).queryAllByRole("link")).toHaveLength(0);
+    const links = within(panel()).getAllByRole("link");
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/trash/p1", "/trash/p2", "/trash/w1"]);
     for (const id of ["p1", "p2", "w1"]) {
       expect(row(id)).toHaveAttribute("data-node-kind", "note");
       expect(row(id)).toHaveAttribute("data-node-id", id);
@@ -794,6 +795,8 @@ describe("TrashPanel (select mode)", () => {
     expect(boxes).toHaveLength(4);
     for (const box of boxes) expect(box).not.toBeChecked();
     expect(checkbox("p1")).toHaveClass("appearance-none");
+    // Select mode rows toggle checkboxes rather than linking to the preview.
+    expect(within(panel()).queryAllByRole("link")).toHaveLength(0);
     expect(within(panel()).queryByRole("button", { name: "Restore p1" })).toBeNull();
     expect(within(panel()).queryByRole("button", { name: "Actions for p1" })).toBeNull();
     expect(done).toHaveFocus();

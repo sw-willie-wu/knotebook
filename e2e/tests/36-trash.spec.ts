@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { E2E_ORIGIN } from "../ports.js";
 import {
   ADMIN,
   chooseSelectOption,
@@ -8,11 +9,13 @@ import {
   expectWidePointer,
   loginAs,
   moveNoteToTrashFromSidebar,
+  noteIdFromUrl,
   openGroupPanel,
   openListOnCompact,
   randomEmail,
   reEscape,
   showSidebarTab,
+  solidPng,
   toastWithTitle,
 } from "./helpers.js";
 
@@ -68,6 +71,7 @@ test("move to trash from the header more menu without confirmation, toast Undo r
   await createNote(page, keep); // not moved in: the positive anchor for the later negative assertion
   await createNote(page, title);
   const noteUrl = page.url();
+  const noteId = await noteIdFromUrl(page);
 
   await page.getByRole("button", { name: "More", exact: true }).click();
   await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
@@ -97,7 +101,7 @@ test("move to trash from the header more menu without confirmation, toast Undo r
   const row = trashRow(panel, title, "My notes");
   await expect(row).toBeVisible();
   await expect(row.getByText(DAYS_LEFT)).toBeVisible();
-  await expect(row.getByRole("link")).toHaveCount(0);
+  await expect(row.getByRole("link")).toHaveAttribute("href", `/trash/${noteId}`);
   await expect(sidebar.getByTestId("trash-footer")).toHaveText(/Permanently deleted \d+ days? after deletion|isn't emptied automatically/);
 
   // My notes does not have it: a tab renders one list at a time, so wait for the positive anchor (the keep note created in this test) before the negative assertion
@@ -520,4 +524,118 @@ test("phone (390) list: the Trash tab bottom has only the search box (no New not
   expect(box.y + box.height).toBeGreaterThan(844 - 140);
   await panel.getByRole("button", { name: "Done", exact: true }).click();
   await expect(panel.getByRole("checkbox")).toHaveCount(0);
+});
+
+async function createTrashedNoteWithImage(
+  page: Page,
+  title: string,
+  bodyText: string,
+): Promise<{ id: string; uploadId: string; path: string }> {
+  const created = await page.request.post("/api/notes", { headers: { Origin: E2E_ORIGIN }, data: { title } });
+  expect(created.status(), await created.text()).toBe(201);
+  const note = (await created.json()) as { id: string; slug: string; ownerHandle: string };
+
+  const upload = await page.request.post(`/api/notes/${note.id}/uploads`, {
+    headers: { Origin: E2E_ORIGIN },
+    multipart: { file: { name: "preview.png", mimeType: "image/png", buffer: solidPng(120, 80) } },
+  });
+  expect(upload.status(), await upload.text()).toBe(201);
+  const { id: uploadId, url } = (await upload.json()) as { id: string; url: string };
+
+  const current = await page.request.get(`/api/notes/${note.id}/content`);
+  expect(current.status(), await current.text()).toBe(200);
+  const { fingerprint } = (await current.json()) as { fingerprint: string };
+  const markdown = `${bodyText}\n\n<figure><img alt="preview" src="${url}" width="120"></figure>`;
+  const written = await page.request.post(`/api/notes/${note.id}/edits`, {
+    headers: { Origin: E2E_ORIGIN },
+    data: { op: "replace_all", markdown, if_match: fingerprint },
+  });
+  expect(written.status(), await written.text()).toBeLessThan(300);
+
+  const deleted = await page.request.delete(`/api/notes/${note.id}`, { headers: { Origin: E2E_ORIGIN } });
+  expect(deleted.status(), await deleted.text()).toBe(204);
+
+  return { id: note.id, uploadId, path: `/n/${note.ownerHandle}/${note.slug}` };
+}
+
+test("trash read-only preview: select mode stays on list, direct URL and row click show preview with uploaded image, Restore lands on the restored note", async ({ page }) => {
+  test.setTimeout(120_000);
+  const title = `E2E Trash Preview ${RUN}`;
+  const bodyText = `Trash preview body ${RUN}`;
+  await loginAs(page, ADMIN.email, ADMIN.password);
+  await expect(page).toHaveURL(/\/$/);
+  const note = await createTrashedNoteWithImage(page, title, bodyText);
+
+  await page.goto("/");
+  await expectWidePointer(page, true);
+  const panel = await openTrash(page);
+  await expect(trashRow(panel, title, "My notes")).toBeVisible();
+
+  // Select mode: clicking a row toggles selection and must not navigate.
+  await panel.getByRole("button", { name: "Select", exact: true }).click();
+  await trashRow(panel, title).click();
+  await expect(trashCheckbox(panel, title)).toBeChecked();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId("trash-preview-editor")).toHaveCount(0);
+  await panel.getByRole("button", { name: "Exit selection", exact: true }).click();
+  await expect(panel.getByRole("checkbox")).toHaveCount(0);
+
+  // Direct URL to the trashed note shows both the banner and read-only note content.
+  await page.goto(note.path);
+  await expect(page).toHaveURL(new RegExp(`${reEscape(note.path)}$`));
+  await expect(page.getByRole("heading", { name: "This note is in the trash", exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { level: 1, name: title, exact: true })).toBeVisible({ timeout: 15_000 });
+  const directPreview = page.getByTestId("trash-preview-editor");
+  await expect(directPreview).toContainText(bodyText, { timeout: 15_000 });
+  await expect(directPreview.locator('[contenteditable="true"]')).toHaveCount(0);
+
+  // Clicking the trash row opens /trash/:id and loads the uploaded image via /api/trash/:id/uploads/:uploadId.
+  await page.goto("/");
+  const trashAgain = await openTrash(page);
+  await trashRow(trashAgain, title, "My notes").getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp(`/trash/${note.id}$`));
+  await expect(page.getByRole("heading", { level: 1, name: title, exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "This note is in the trash", exact: true })).toBeVisible();
+  const preview = page.getByTestId("trash-preview-editor");
+  await expect(preview).toContainText(bodyText, { timeout: 15_000 });
+  await expect(preview.locator('[contenteditable="true"]')).toHaveCount(0);
+  const img = preview.locator('[data-content-type="image"] img').first();
+  await expect(img).toBeVisible({ timeout: 15_000 });
+  await expect(img).toHaveAttribute("src", `/api/trash/${note.id}/uploads/${note.uploadId}`);
+  await expect.poll(() => img.evaluate((el) => (el as HTMLImageElement).naturalWidth), { timeout: 15_000 }).toBeGreaterThan(0);
+
+  // Restoring from the preview lands on the restored note.
+  await page.getByTestId("trash-preview-banner").getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`${reEscape(note.path)}$`), { timeout: 15_000 });
+  await expect(page.getByRole("textbox", NOTE_TITLE)).toHaveValue(title, { timeout: 15_000 });
+  await expect(editorLocator(page)).toContainText(bodyText, { timeout: 15_000 });
+});
+
+test("phone (390) trash preview: tapping a row opens the read-only preview with Back to notes and no horizontal overflow, and Back returns to the list", async ({ page }) => {
+  test.setTimeout(120_000);
+  const title = `E2E Trash Phone Preview ${RUN}`;
+  const bodyText = `Phone preview body ${RUN}`;
+  await loginAs(page, ADMIN.email, ADMIN.password);
+  await expect(page).toHaveURL(/\/$/);
+  const note = await createTrashedNoteWithImage(page, title, bodyText);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const list = await openListOnCompact(page);
+  const panel = await openTrash(page, list);
+  await trashRow(panel, title).getByRole("link").click();
+
+  await expect(page).toHaveURL(new RegExp(`/trash/${note.id}$`));
+  await expect(page.getByRole("heading", { level: 1, name: title, exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "This note is in the trash", exact: true })).toBeVisible();
+  await expect(page.getByTestId("trash-preview-editor")).toContainText(bodyText, { timeout: 15_000 });
+  const back = page.getByRole("button", { name: "Back to notes", exact: true });
+  await expect(back).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toHaveCount(0);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+
+  await back.click();
+  await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
+  await expect(page.getByRole("complementary")).toBeVisible({ timeout: 15_000 });
 });

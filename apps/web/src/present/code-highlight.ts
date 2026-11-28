@@ -1,4 +1,4 @@
-import { SUPPORTED_LANGUAGES } from "@knotebook/shared";
+import { resolveCodeBlockLanguage } from "@knotebook/shared";
 import { createHighlighter } from "@/lib/code-highlight";
 
 export interface HighlightToken {
@@ -18,14 +18,6 @@ const FONT_STYLE_BOLD = 2;
 const FONT_STYLE_UNDERLINE = 4;
 const FONT_STYLE_STRIKETHROUGH = 8;
 
-const LANGUAGE_IDS = new Map<string, string>();
-for (const [id, spec] of Object.entries(SUPPORTED_LANGUAGES)) {
-  LANGUAGE_IDS.set(id.toLowerCase(), id);
-  for (const alias of spec.aliases ?? []) {
-    LANGUAGE_IDS.set(alias.toLowerCase(), id);
-  }
-}
-
 type Highlighter = Awaited<ReturnType<typeof createHighlighter>>;
 type BundledLang = Parameters<Highlighter["loadLanguage"]>[0];
 type CodeLang = NonNullable<Parameters<Highlighter["codeToTokens"]>[1]>["lang"];
@@ -43,9 +35,7 @@ function cacheKey(lang: string, code: string): string {
  * Returns `null` for `text` (plain text) and unsupported/empty names so shiki is never loaded for them.
  */
 export function resolveHighlightLanguage(raw: string | null | undefined): string | null {
-  const key = (raw ?? "").trim().toLowerCase();
-  if (key === "") return null;
-  const resolved = LANGUAGE_IDS.get(key);
+  const resolved = resolveCodeBlockLanguage(raw);
   return resolved && resolved !== "text" ? resolved : null;
 }
 

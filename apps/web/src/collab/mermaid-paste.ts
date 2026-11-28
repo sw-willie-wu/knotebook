@@ -52,7 +52,7 @@ export function findPastedMermaidCodeBlocks(
     if (Array.isArray(block.children)) stack.push(...block.children);
     if (idsBeforePaste.has(block.id)) continue;
     if (block.type !== "codeBlock") continue;
-    if (block.props?.language !== "mermaid") continue;
+    if (typeof block.props?.language !== "string" || block.props.language.trim().toLowerCase() !== "mermaid") continue;
     const code = codeBlockText(block);
     if (code.trim().length === 0) continue; // converting an empty code block to an empty diagram would be a downgrade for the user
     found.push({ id: block.id, code });
