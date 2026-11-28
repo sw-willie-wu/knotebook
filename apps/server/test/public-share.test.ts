@@ -14,7 +14,8 @@ import { writeFile } from "node:fs/promises";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { uploadFilePath } from "../src/uploads/service.js";
+import { UPLOAD_CSP, uploadFilePath } from "../src/uploads/service.js";
+import { expectRangeServing } from "./helpers/upload-serving.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 
 // Same error convention as the shares endpoints: no role -> 404 not_found (indistinguishable from nonexistent), readable non-owner -> 403.
@@ -663,6 +664,73 @@ describe("public image endpoint (GET /api/public/notes/:token/uploads/:uploadId)
   });
 });
 
+describe("public upload serving: class headers, Range and HEAD on both forms", () => {
+  async function publishedVideo(overrides: Parameters<typeof buildTestApp>[0] = {}) {
+    const built = await buildTestApp(overrides);
+    const owner = await insertUser(built.db, "alice@example.com", "alice");
+    const cookie = await cookieFor(owner.id);
+    const noteId = await createNote(built.app, cookie);
+    const token = await openPublicLink(built.app, cookie, noteId);
+    const slug = await built.app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link/slug`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug: "talk" } });
+    expect(slug.statusCode).toBe(200);
+    const video = Buffer.alloc(4096);
+    for (let i = 0; i < video.length; i++) video[i] = (i * 31) & 0xff;
+    const [row] = await built.db.insert(uploads).values({ noteId, mime: "video/mp4", size: video.length, fileName: "talk.mp4" }).returning();
+    await writeFile(uploadFilePath(built.uploadsDir, row.id), video);
+    return { ...built, token, uploadId: row.id, video };
+  }
+
+  it("token form: a media player's Range, If-Range and HEAD requests, with the video's inline headers", async () => {
+    const { app, token, uploadId, video } = await publishedVideo();
+    const url = `/api/public/notes/${token}/uploads/${uploadId}`;
+    await expectRangeServing(opts => app.inject({ method: opts?.method ?? "GET", url, headers: opts?.headers }), video);
+    const res = await app.inject({ method: "GET", url });
+    expect(res.headers["content-type"]).toBe("video/mp4");
+    expect(res.headers["content-security-policy"]).toBe(UPLOAD_CSP);
+    expect(res.headers["content-disposition"]).toBe("inline; filename=\"talk.mp4\"; filename*=UTF-8''talk.mp4");
+  });
+
+  it("alias form: the same Range, If-Range and HEAD behaviour and headers as the token form", async () => {
+    const { app, token, uploadId, video } = await publishedVideo();
+    const url = `/api/public/notes/alice/talk/uploads/${uploadId}`;
+    await expectRangeServing(opts => app.inject({ method: opts?.method ?? "GET", url, headers: opts?.headers }), video);
+    const viaAlias = await app.inject({ method: "GET", url, headers: { range: "bytes=0-1" } });
+    const viaToken = await app.inject({ method: "GET", url: `/api/public/notes/${token}/uploads/${uploadId}`, headers: { range: "bytes=0-1" } });
+    for (const h of ["content-type", "content-disposition", "content-security-policy", "cache-control", "content-range", "etag"]) {
+      expect(viaAlias.headers[h], h).toBe(viaToken.headers[h]);
+    }
+  });
+
+  it("Range requests count against publicUpload (300/min per IP and note): seeking all 206, request 301 is 429", async () => {
+    const { app, token, uploadId, video } = await publishedVideo();
+    const url = `/api/public/notes/${token}/uploads/${uploadId}`;
+    for (let i = 0; i < 50; i++) {
+      const res = await app.inject({ method: "GET", url, headers: { range: `bytes=${i * 64}-${i * 64 + 63}` } });
+      expect(res.statusCode, `range request ${i + 1}`).toBe(206);
+    }
+    for (let i = 50; i < 300; i++) {
+      const res = await app.inject({ method: "GET", url, headers: { range: `bytes=${i % video.length}-` } });
+      expect(res.statusCode, `range request ${i + 1}`).toBe(206);
+    }
+    const over = await app.inject({ method: "GET", url, headers: { range: "bytes=0-1" } });
+    expect(over.statusCode).toBe(429);
+    expect(over.json().error.code).toBe("too_many_requests");
+  }, 60_000);
+
+  it("a PDF on a public link opens inline with its own CSP and no sandbox, framable by this site only", async () => {
+    const { app, db, uploadsDir, token } = await publishedVideo();
+    const [note] = await db.select({ id: notes.id }).from(notes).where(eq(notes.publicToken, token));
+    const bytes = Buffer.from("%PDF-1.4\n%%EOF\n");
+    const [row] = await db.insert(uploads).values({ noteId: note!.id, mime: "application/pdf", size: bytes.length, fileName: "slides.pdf" }).returning();
+    await writeFile(uploadFilePath(uploadsDir, row.id), bytes);
+    const res = await app.inject({ method: "GET", url: `/api/public/notes/${token}/uploads/${row.id}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'self'");
+    expect(res.headers["x-frame-options"]).toBeUndefined();
+    expect(res.headers["content-disposition"]).toBe("inline; filename=\"slides.pdf\"; filename*=UTF-8''slides.pdf");
+  });
+});
+
 
 describe("token never reaches the log (req serializer masking)", () => {
   it("after hitting three token-bearing paths (/p/ HTML fallback plus two public APIs), the whole log contains no token literal and contains the masked :token", async () => {
@@ -939,6 +1007,24 @@ describe("public alias image endpoint (GET /api/public/notes/:handle/:slug/uploa
       expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
       expect(res.headers["content-type"]).toBe("image/png");
       expect(res.rawPayload).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    } finally {
+      rmSync(uploadsDir, { recursive: true, force: true });
+    }
+  });
+
+  it("an SVG is served inline as image/svg+xml under the sandbox CSP on the alias form too", async () => {
+    const { app, db, uploadsDir, noteId } = await uploadSetup();
+    try {
+      const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "utf-8");
+      const [svgRow] = await db.insert(uploads).values({ noteId, mime: "image/svg+xml", size: svgBytes.length }).returning();
+      await writeFile(uploadFilePath(uploadsDir, svgRow.id), svgBytes);
+      const res = await app.inject({ method: "GET", url: `/api/public/notes/kim/pics/uploads/${svgRow.id}` });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["content-type"]).toBe("image/svg+xml");
+      expect(res.headers["content-security-policy"]).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
+      expect(res.headers["x-content-type-options"]).toBe("nosniff");
+      expect(res.headers["content-disposition"]).toBeUndefined();
+      expect(res.rawPayload.equals(svgBytes)).toBe(true);
     } finally {
       rmSync(uploadsDir, { recursive: true, force: true });
     }

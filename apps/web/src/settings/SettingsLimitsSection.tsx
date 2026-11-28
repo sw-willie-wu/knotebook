@@ -16,8 +16,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
-import { initialDraft, isSiteLimitKey, limitValueText, SiteLimitRow } from "./SiteLimitRow";
-import { effectiveWorkers, estimateParseMemoryMb, fromInput, toInput } from "./site-limit-format";
+import { initialDraft, isSiteLimitKey, limitValueText, MEDIA_LIMIT_KEY, SiteLimitRow } from "./SiteLimitRow";
+import { effectiveWorkers, estimateParseMemoryMb, formatMib, fromInput, toInput } from "./site-limit-format";
 import "@/i18n/management-strings";
 
 /** `signIn` lives on the sign-in tab; categories with no registry items aren't drawn. */
@@ -100,9 +100,13 @@ export function SiteLimitsGroup({
   const items = itemsFor(data, keys);
   const draftOf = (item: SiteLimitItemDto): string => drafts[item.key] ?? initialDraft(t, item);
 
-  function validationMessage(key: SiteLimitKey, reason: "notInteger" | "range"): string {
+  function validationMessage(key: SiteLimitKey, reason: "notInteger" | "range", draft: string): string {
     if (reason === "notInteger") return t("admin.limits.validation.notInteger");
     const def = SITE_LIMITS[key];
+    if (key === MEDIA_LIMIT_KEY) {
+      // The registry maximum (a storage ceiling, not a recommendation) is never printed.
+      return Number(draft.trim()) > def.max ? t("admin.limits.media.tooLarge") : t("admin.limits.media.tooSmall", { min: formatMib(def.min) });
+    }
     const inInputUnits = (v: number) => String(toInput(key, v) ?? v);
     return t("admin.limits.validation.outOfRange", { min: inInputUnits(def.min), max: inInputUnits(def.max) });
   }
@@ -137,7 +141,7 @@ export function SiteLimitsGroup({
       }
       const parsed = fromInput(item.key, draft);
       if (!parsed.ok) {
-        nextErrors[item.key] = validationMessage(item.key, parsed.reason);
+        nextErrors[item.key] = validationMessage(item.key, parsed.reason, draft);
         continue;
       }
       if (item.source !== "auto" && parsed.value === item.value) continue;

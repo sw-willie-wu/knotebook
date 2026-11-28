@@ -60,8 +60,10 @@ export interface AuthConfigDto {
   /** Bytes of Yjs state (server NOTE_MAX_BYTES). Web checks it before paste, drop and AI apply (the server doesn't check browser collab updates).
    * Always sent; optional only for test doubles and older servers (absent = no check). */
   noteMaxBytes?: number;
-  /** Per image file, bytes; admin-adjustable. Absent (test doubles, older servers) means no client-side precheck. */
+  /** Per image, document or text file, bytes; admin-adjustable. Absent (test doubles, older servers) means no client-side precheck. */
   maxUploadBytes?: number;
+  /** Per audio or video file, bytes. Absent means no client-side precheck. */
+  maxMediaUploadBytes?: number;
 }
 
 /** Exposes only id, display name and icon; issuer, client id and other provider settings never leave the server. */

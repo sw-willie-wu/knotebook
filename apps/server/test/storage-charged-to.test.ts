@@ -21,8 +21,8 @@ async function byMember(app: FastifyInstance, groupId: string, viewerId: string)
 /** The note's uploads rows (raw SQL, independent of the code under test), ordered by size. */
 async function uploadRows(db: Db, noteId: string): Promise<UploadRow[]> {
   return (await db.$client.query<UploadRow>(
-    "select uploader_id, charged_to_id, size from uploads where note_id = $1 order by size, id", [noteId],
-  )).rows;
+    "select uploader_id, charged_to_id, size::text as size from uploads where note_id = $1 order by uploads.size, id", [noteId],
+  )).rows.map(r => ({ ...r, size: Number(r.size) }));
 }
 async function uploaded(app: FastifyInstance, noteId: string, userId: string, size: number): Promise<void> {
   const res = await upload(app, noteId, userId, size);

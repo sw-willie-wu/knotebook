@@ -148,7 +148,7 @@ type Rec = Record<string, unknown>;
 const isRec = (x: unknown): x is Rec => x !== null && typeof x === "object" && !Array.isArray(x);
 
 // Copy-on-write: `fix` returns its input unchanged to mean "no change"; an untouched tree returns the same array.
-function mapBlocksCow<B>(blocks: B[], fix: (b: Rec) => Rec): B[] {
+export function mapBlocksCow<B>(blocks: B[], fix: (b: Rec) => Rec): B[] {
   const nodes: Rec[] = [];
   const parent: number[] = [];
   const slot: number[] = [];
@@ -231,7 +231,7 @@ export function findStructureError(blocks: readonly unknown[], placement: Markdo
       if (parentType !== COLUMN_LIST_TYPE) return "unsupported_columns";
       const w = props.width;
       if (typeof w !== "number" || !Number.isFinite(w) || w < COLUMN_WIDTH_MIN || w > COLUMN_WIDTH_MAX) return "unsupported_columns";
-    } else if (n.type === "image") {
+    } else if (n.type === "image" || n.type === "video") {
       if (props.previewWidth !== undefined && !isSizeValue(props.previewWidth)) size = true;
     } else if (n.type === "table" && isRec(n.content) && Array.isArray(n.content.columnWidths)) {
       if (!(n.content.columnWidths as unknown[]).every(v => v === undefined || v === null || isSizeValue(v))) size = true;

@@ -13,7 +13,7 @@ import { securityHeaders } from "../../src/http/security-headers.js";
  * - **a directive is loosened** (e.g. someone adds `'unsafe-inline'` to script-src to make something work) -> the defence silently
  *   stops working. Values are pinned one by one.
  * - **a directive is tightened** (img/media) -> shipped features silently turn into broken images: external images are embedded by URL, and
- *   audio/video/file blocks are embed-by-URL only, with no upload path (see docs/known-limitations.md). The mermaid policy in `apps/web/src/lib/mermaid.ts` also lets diagrams reference remote images.
+ *   audio/video/file blocks can embed external URLs besides same-origin uploads. The mermaid policy in `apps/web/src/lib/mermaid.ts` also lets diagrams reference remote images.
  *
  * Expected values are deliberately **not derived from the code under test**: the hash is computed here with node:crypto as an oracle.
  */
@@ -104,12 +104,16 @@ describe("securityHeaders (issue #101)", () => {
 
     // The loosened half (#101): tightening would silently turn shipped features into broken images.
     // img: external images are embedded by URL (the image block's Embed tab, dragging an image from a web page, mermaid's
-    // `A@{ img: ... }`). media: audio/video blocks are embed-by-URL, with no upload path.
+    // `A@{ img: ... }`). media: audio/video blocks can embed external URLs; uploads are same-origin and need no blob:/data: (no previews from object URLs).
     // **http: must stay**: `isSafeMediaUrl` in `packages/shared/src/note-schema-config.ts` lets both http and https through, and the `docs/self-hosting.md` topology (a)
     // is a plain-http trusted-LAN deployment. With only https:, `http://intranet/logo.png` in a LAN self-hoster's existing notes would
     // silently become a broken image (https deployments already block these as mixed content, so only http deployments are affected).
     expect(directive(csp, "img-src")).toBe("'self' data: blob: http: https:");
     expect(directive(csp, "media-src")).toBe("'self' http: https:");
+    expect(directive(csp, "media-src")).not.toMatch(/blob:|data:/);
+    // The file preview frames this site's own PDFs: frames fall back to default-src 'self', so neither may be set.
+    expect(directive(csp, "frame-src")).toBeUndefined();
+    expect(directive(csp, "child-src")).toBeUndefined();
   });
 
   it("the other two headers sent with it: nosniff and no-referrer (the latter lets external images load without leaking which note is being viewed)", () => {

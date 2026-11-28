@@ -12,19 +12,21 @@ export interface UseSessionResult {
 }
 
 /** 401 resolves to null rather than erroring: logged out is a normal state, and an error would trigger retries. */
+export async function fetchSessionUser(signal?: AbortSignal): Promise<UserDto | null> {
+  try {
+    return await api<UserDto>("/api/auth/me", { signal });
+  } catch (err) {
+    if (err instanceof ApiFail && err.status === 401) return null;
+    throw err;
+  }
+}
+
 export function useSession(): UseSessionResult {
   const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: SESSION_QUERY_KEY,
-    queryFn: async (): Promise<UserDto | null> => {
-      try {
-        return await api<UserDto>("/api/auth/me");
-      } catch (err) {
-        if (err instanceof ApiFail && err.status === 401) return null;
-        throw err;
-      }
-    },
+    queryFn: () => fetchSessionUser(),
   });
 
   const logout = async (): Promise<void> => {

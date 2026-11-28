@@ -12,8 +12,8 @@ const walk = (d: string): string[] => readdirSync(d).flatMap(f => { const p = pa
 const code = (p: string) => readFileSync(p, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
 describe("#93 attachments are not searched", () => {
-  it("the 'attachment' literal appears only in db/schema.ts", () => {
+  it("the 'attachment' literal appears only in db/schema.ts (and uploads/service.ts, where it is the Content-Disposition type)", () => {
     const hits = walk(SRC).filter(p => /["'`]attachment["'`]/.test(code(p))).map(p => path.relative(SRC, p).replace(/\\/g, "/"));
-    expect(hits).toEqual(["db/schema.ts"]);
+    expect(hits.sort()).toEqual(["db/schema.ts", "uploads/service.ts"]);
   });
 });

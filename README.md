@@ -67,6 +67,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 - **Real-time co-editing**: everyone on a note edits at once (Yjs and Hocuspocus) and sees the other editors' cursors; the note header shows who else has it open, and clicking someone's avatar goes to their cursor.
 - **Links between notes**: type `[[`, or paste or drag in a note's address; links follow renames, can point at a single paragraph, and each note lists the notes that mention it.
 - **Images and diagrams**: PNG, JPEG, GIF, WebP and SVG images you can resize, counted toward the storage plan of the note's space; Mermaid diagrams stored as their source text ([Diagrams](docs/diagrams.md)); both zoom full screen.
+- **Audio, video and documents**: upload MP3, M4A, Ogg, WAV and FLAC audio, MP4, WebM, Ogg and MOV video, PDF, Office and OpenDocument files and text files as attachments; agents read and write them as `<audio>`, `<video>` and `<embed>` ([AI editing](docs/ai-editing.md#audio-video-and-files)).
 - **Side-by-side columns**: rows of two to four columns, made with `/grid` or by dragging a block beside another, resized by dragging the divider ([Side-by-side columns](docs/columns.md)).
 - **Heading outline**: a thin line on the right of a note with one tick per heading (H1 to H3); hover or tap it to see the headings and jump to one. On a wide enough window it can be pinned open beside a Standard-width note; on a phone or a window narrower than 768 px, a bubble shows where you are while you scroll and opens the list, and so does **Heading outline** in the note's `⋮` menu.
 - **Knowledge info**: a heading can carry when to read it, a one-line conclusion, its basis, when it was last verified and whether it is verified, needs review or outdated, shown as a small status icon after the heading (a site admin chooses which of these fields are used), with an index of it for each folder and space ([Knowledge info](docs/knowledge.md), [the index](docs/knowledge.md#the-index)).
@@ -78,7 +79,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 
 **Planned**
 
-- Attaching audio, video and documents, not only images ([#249](https://github.com/sw-willie-wu/knotebook/issues/249)); a reference library that AI can cite ([#71](https://github.com/sw-willie-wu/knotebook/issues/71)).
+- A reference library that AI can cite ([#71](https://github.com/sw-willie-wu/knotebook/issues/71)).
 - Importing an Obsidian vault, a Notion export or Markdown files, with `[[links]]` turned into links between notes.
 
 ### Let agents work on the same notes
@@ -134,7 +135,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 - **Sign-in**: passwords, and any number of OpenID Connect providers (GitLab, Google or another), which can create an account on someone's first sign-in or be made the only way in; self-registration with a password (on unless a site admin turns it off), invitation links and one-time password-reset links ([Sign-in providers](docs/self-hosting.md#sign-in-providers), [Accounts](docs/self-hosting.md#accounts)).
 - **Profile pictures**: upload and crop your own, or use the picture your identity provider sends; it shows on your account button, in the avatars at the top of a note and next to your name in lists such as a group's members.
 - **Storage quotas**: every personal space and group is on a storage plan that can cap its attachments ([Storage quotas](docs/self-hosting.md#storage-quotas)).
-- **Site admin**: users, groups, sign-in services, storage plans, AI providers, and 17 limits (upload size, note size, request rates and more) that take effect without restarting the server ([Site limits](docs/self-hosting.md#site-limits)).
+- **Site admin**: users, groups, sign-in services, storage plans, AI providers, and 18 limits (upload size, note size, request rates and more) that take effect without restarting the server ([Site limits](docs/self-hosting.md#site-limits)).
 - **Phone layout**: below 640 px the note list is the home screen, a note slides in from the right over it, dialogs and menus rise from the bottom, and an editing toolbar sits above the on-screen keyboard; from 640 to 1279 px the sidebar is a drawer ([Known limitations](docs/known-limitations/phone.md)).
 - **Install as an app**: add Knotebook to a phone's or computer's home screen, or install it from Chrome or Edge; like a browser tab, it needs the server ([Installing Knotebook as an app](docs/install-app.md)).
 - **Help and feature tour**: **Help** in the user menu, or Ctrl+/ (⌘/ on a Mac), opens a feature tour on a sample note, What's new, and the keyboard shortcuts ([Help and the feature tour](docs/feature-tour.md)).

@@ -43,6 +43,7 @@ import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sideb
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { UserMenu } from "@/components/UserMenu";
 import { NotificationBell } from "@/components/NotificationBell";
+import { UploadIndicator } from "@/components/UploadIndicator";
 import { useNotificationLive } from "@/lib/notification-live";
 import { ShortcutsDialog } from "@/components/shortcuts/ShortcutsDialog";
 import { AvatarDisplayFiller } from "@/avatars/AvatarDisplayFiller";
@@ -168,6 +169,7 @@ function SidebarContent({
               <span className="text-sm font-semibold">Knotebook</span>
             </div>
             <div className="flex items-center">
+              <UploadIndicator placement="topBar" />
               <NotificationBell placement="topBar" />
               <UserMenu variant="avatar" />
             </div>
@@ -289,7 +291,7 @@ function SidebarContent({
           <SidebarFooter searching={searching} onCreateNote={() => onCreateNote()} newNotePending={newNotePending} />
 
           <div className="border-t border-border p-2">
-            <UserMenu bell={<NotificationBell placement="sidebar" />} />
+            <UserMenu uploads={<UploadIndicator placement="sidebar" />} bell={<NotificationBell placement="sidebar" />} />
           </div>
         </>
       )}

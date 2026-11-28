@@ -1,0 +1,16 @@
+{
+  "uploadBlock": {
+    "progress": "{{percent}}% · {{loaded}} / {{total}}",
+    "progressLabel": "Uploading {{name}}",
+    "saving": "Saving to the note…",
+    "retry": "Retry",
+    "retryLabel": "Retry {{name}}",
+    "retryWait": "Retry in {{seconds}} s",
+    "checking": "Checking…",
+    "startsOver": "(the upload starts again from the beginning)",
+    "pickAudio": "Choose an audio file to upload",
+    "pickVideo": "Choose a video file to upload",
+    "pickFile": "Choose a document or text file to upload",
+    "unsupportedTransfer": "This file type can't be added. You can add images, audio, video, PDFs, Office and OpenDocument files, and text files."
+  }
+}

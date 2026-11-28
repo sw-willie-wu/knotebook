@@ -447,6 +447,35 @@ describe("NoteRouteErrorBoundary", () => {
     expect(reload).toHaveBeenCalledTimes(1);
     expectLoadingScreen();
   });
+
+  it("reload cancelled by a leave-page prompt (the page stays alive) -> back to the error screen with the retry button enabled", () => {
+    vi.useFakeTimers();
+    try {
+      const reload = vi.fn();
+      render(
+        <Providers>
+          <NoteRouteErrorBoundary resetKey="n1" reload={reload}>
+            <ChunkBomb />
+          </NoteRouteErrorBoundary>
+        </Providers>,
+      );
+      expect(reload).toHaveBeenCalledTimes(1);
+      expectLoadingScreen();
+
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument();
+      const retry = screen.getByRole("button", { name: RETRY_TEXT });
+      expect(retry).toBeEnabled();
+      // Left set: a reload that was only slow must not earn another automatic one.
+      expect(sessionStorage.getItem(FLAG_KEY)).not.toBeNull();
+      act(() => retry.click());
+      expect(reload).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("ChunkLoadBeacon (real suspend -> reject timeline)", () => {

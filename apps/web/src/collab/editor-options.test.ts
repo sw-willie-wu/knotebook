@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
+import { BlockNoteEditor } from "@blocknote/core";
+import { blocksToYXmlFragment } from "@blocknote/core/yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { BLOCKED_MEDIA_URL } from "@/lib/media-url";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
@@ -71,5 +73,40 @@ describe("buildReadonlyNoteEditorOptions (#72, #122: editor options for both pub
   // #99: the public read-only page must not get the markdown link input rule (nor the `/` menu). That lives on `_tiptapOptions.extensions`; the "keys don't include _tiptapOptions" test above already implies it, and this separate assertion makes what the guard requires visible in the source without the reader deriving "no _tiptapOptions => no extensions".
   it("read-only options don't include _tiptapOptions (the public page must not get input rules or the / menu)", () => {
     expect(build().options).not.toHaveProperty("_tiptapOptions");
+  });
+});
+
+describe("public read-only page: uploaded audio, video and files", () => {
+  it("audio and video play from the public endpoint, and the file block's name links there (new tab, no download attribute)", async () => {
+    const { doc, options } = build();
+    const seed = BlockNoteEditor.create({ schema: noteSchema });
+    blocksToYXmlFragment(
+      seed,
+      [
+        { id: "a1", type: "audio", props: { url: "/api/uploads/a1", name: "talk.m4a" } },
+        { id: "v1", type: "video", props: { url: "/api/uploads/v1", name: "clip.mp4" } },
+        { id: "f1", type: "file", props: { url: "/api/uploads/f1", name: "quote.pdf" } },
+      ] as never,
+      doc.getXmlFragment(YDOC_FRAGMENT),
+    );
+    const editor = BlockNoteEditor.create(options);
+    const el = document.createElement("div");
+    document.body.append(el);
+    editor.mount(el);
+    try {
+      const base = `/api/public/notes/${TOKEN}/uploads`;
+      await vi.waitFor(() => {
+        expect(el.querySelector("audio")?.getAttribute("src")).toBe(`${base}/a1`);
+        expect(el.querySelector("video")?.getAttribute("src")).toBe(`${base}/v1`);
+        expect(el.querySelector('[data-id="f1"] .bn-file-name a')?.getAttribute("href")).toBe(`${base}/f1`);
+      });
+      const link = el.querySelector<HTMLAnchorElement>('[data-id="f1"] .bn-file-name a')!;
+      expect(link.target).toBe("_blank");
+      expect(link.hasAttribute("download")).toBe(false);
+      expect(link.textContent).toBe("quote.pdf");
+    } finally {
+      editor.unmount();
+      el.remove();
+    }
   });
 });

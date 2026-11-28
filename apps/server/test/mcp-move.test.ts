@@ -27,7 +27,7 @@ const CONFLICT = "This note stopped being your personal note after your access w
 const BUSY = "The server was busy, so the note was not moved. Try again in a moment.";
 const TOKEN_RATE = "Too many writes with this credential right now. Wait a few minutes before writing again.";
 const EDIT_FORBIDDEN = "You can read this note but not change it. Ask whoever manages your access to it for editing rights.";
-const TAIL = "A site admin can assign a larger storage plan; deleting notes that have images also frees space.";
+const TAIL = "A site admin can assign a larger storage plan; deleting notes that have files also frees space.";
 
 type Result = { isError?: true; content: { text: string }[]; structuredContent?: Record<string, unknown> & { code?: string; message?: string } };
 type Note = { id: string; slug: string; url: string; role: string; owner: { kind: string; id?: string; name?: string } };
@@ -181,7 +181,7 @@ describe("#180 move_note_to_group", () => {
     const r1 = await move(app, (await seedTokenForUser(db, admin.id, RWM)).token, a.id, g.id);
     expect(r1.structuredContent).toEqual({
       code: "storage_quota_exceeded",
-      message: `The group's storage space has no room for this note's images (0 B of 100 B used; they need 101 B), so the note was not moved. ${TAIL}`,
+      message: `The group's storage space has no room for this note's files (0 B of 100 B used; they need 101 B), so the note was not moved. ${TAIL}`,
       usedBytes: 0,
       quotaBytes: 100,
       incomingBytes: 101,
@@ -194,7 +194,7 @@ describe("#180 move_note_to_group", () => {
     const r2 = await move(app, (await seedTokenForUser(db, member.id, RWM)).token, m.id, g.id);
     expect(r2.structuredContent).toEqual({
       code: "storage_quota_exceeded",
-      message: "The group's storage space has no room for this note's images, so the note was not moved. Ask a site admin for more space.",
+      message: "The group's storage space has no room for this note's files, so the note was not moved. Ask a site admin for more space.",
     });
   });
 

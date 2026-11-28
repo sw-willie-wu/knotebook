@@ -10,6 +10,8 @@ export interface SidebarPanelProps {
   onCloseAutoFocus?: (event: Event) => void;
   "aria-label": string;
   "data-testid"?: string;
+  /** Lets code outside the portal tell which panel holds focus. */
+  "data-panel"?: string;
   children: ReactNode;
 }
 
@@ -24,6 +26,7 @@ export function SidebarPanel({ triggerRef, onClose, onCloseAutoFocus, children, 
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           data-testid={rest["data-testid"]}
+          data-panel={rest["data-panel"]}
           aria-label={rest["aria-label"]}
           side="top"
           {...PANEL_PLACEMENT}

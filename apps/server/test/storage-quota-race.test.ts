@@ -70,9 +70,9 @@ async function settleOther(holder: Holder): Promise<LightMyRequestResponse> {
 }
 
 describe("concurrent uploads racing for quota", () => {
-  it("deterministic version: while the first stops at the hook the second is blocked; first 201, second decided by the SUM after the first commits -> 409 (three numbers)", async () => {
+  it("deterministic version: while the first stops at the hook the second is blocked; first 201, second decided by the SUM after the first commits -> 409 (three numbers); the loser leaves no file under either name", async () => {
     const holder: Holder = {};
-    const { app, db } = await buildTestApp({ ...RACE, groupTestHook: raceHook(holder, () => true) });
+    const { app, db, uploadsDir } = await buildTestApp({ ...RACE, groupTestHook: raceHook(holder, () => true) });
     Object.assign(holder, { app, db });
     const u = await seedUser(db);
     await giveUserQuota(db, u.id, 1000);
@@ -82,7 +82,49 @@ describe("concurrent uploads racing for quota", () => {
     const second = await settleOther(holder);
     expect(first.statusCode, first.body).toBe(201);
     expect(second.statusCode, second.body).toBe(409);
+    // Both passed the room cap while streaming (each saw 1000 free), so the space lock decided: the in-transaction refusal carries the size.
     expect(second.json()).toEqual(quotaBody({ incomingBytes: 600, usedBytes: 600, quotaBytes: 1000 }));
+    const { id } = first.json() as { id: string };
+    expect(first.json()).toEqual({ id, url: `/api/uploads/${id}`, mime: "image/png", kind: "image" });
+    expect(await filesIn(uploadsDir)).toEqual([id]);
+  });
+
+  it("the first upload held at upload-received while a second one runs to completion: both passed the streaming cap, the second takes the room (201), the first gets the in-transaction 409, one file", async () => {
+    const holder: Holder = {};
+    const { app, db, uploadsDir } = await buildTestApp({ ...RACE, groupTestHook: raceHook(holder, () => true, "upload-received") });
+    Object.assign(holder, { app, db });
+    const u = await seedUser(db);
+    await giveUserQuota(db, u.id, 1000);
+    const n = await seedNote(db, { ownerId: u.id });
+    holder.fire = () => upload(app, n.id, u.id, 600);
+    const first = await upload(app, n.id, u.id, 600);
+    const second = await holder.other!;
+    expect(holder.otherMs!).toBeLessThan(OTHER_MAX_MS);
+    // The second upload runs to completion inside the first one's hook, so it takes the room first.
+    expect(second.statusCode, second.body).toBe(201);
+    expect(first.statusCode, first.body).toBe(409);
+    expect(first.json()).toEqual(quotaBody({ incomingBytes: 600, usedBytes: 600, quotaBytes: 1000 }));
+    expect(await filesIn(uploadsDir)).toEqual([(second.json() as { id: string }).id]);
+    expect(await usedOf(db.$client, { kind: "user", id: u.id })).toBe(600);
+  });
+
+  it("same race by an editor share on someone else's note: the in-transaction 409 shows the editor no numbers, and the bytes count for the owner", async () => {
+    const holder: Holder = {};
+    const { app, db, uploadsDir } = await buildTestApp({ ...RACE, groupTestHook: raceHook(holder, () => true, "upload-received") });
+    Object.assign(holder, { app, db });
+    const [o, e] = await Promise.all([seedUser(db), seedUser(db)]);
+    await giveUserQuota(db, o.id, 1000);
+    const n = await seedNote(db, { ownerId: o.id });
+    await seedShare(db, n.id, e.id, "editor");
+    holder.fire = () => upload(app, n.id, e.id, 600);
+    const first = await upload(app, n.id, e.id, 600);
+    const second = await holder.other!;
+    expect(holder.otherMs!).toBeLessThan(OTHER_MAX_MS);
+    expect(second.statusCode, second.body).toBe(201);
+    expect(first.statusCode, first.body).toBe(409);
+    expect(first.json()).toEqual(quotaBody({ incomingBytes: 600 }));
+    expect(await filesIn(uploadsDir)).toEqual([(second.json() as { id: string }).id]);
+    expect(await usedOf(db.$client, { kind: "user", id: o.id })).toBe(600);
   });
 
   it("500 left, 20 concurrent of 100 each -> exactly 5 are 201; final SUM = quota; exactly 5 more files on disk", async () => {
@@ -582,11 +624,11 @@ describe("small pool (max=3, connection-acquire timeout 2 s: borrowing a second 
     }
   });
 
-  it("copy of a note with many attachments (200): max+1 uploads to the same space plus 1 to another space fired while the copy is after copyFile and before taking the space lock (note-copy-files-copied) -> all finish before the copy is released, all 201", async () => {
-    // copyFile holds no space lock. Uploads are fired from the copy's own hook so the interleaving is deterministic: in correct code the
-    // copy takes only 1 connection and no space lock, the 5 uploads take turns on the remaining 2 connections and finish within the hook's
-    // 4 s window; if the copy took the space lock before copyFile (a regression), same-space uploads would block on the lock holding those
-    // 2 connections and the rest would time out borrowing a connection after 2 s -> 500.
+  it("copy of a note with many attachments (200): max+1 uploads to the same space plus 1 to another space fired once the files are copied and before the copy's transaction (note-copy-files-copied) -> all finish before the copy is released, all 201", async () => {
+    // The files are copied before the transaction, so at the hook the copy holds no connection and no space lock. Uploads are fired from
+    // the copy's own hook so the interleaving is deterministic: the 5 uploads take turns on the pool's 3 connections and finish within the
+    // hook's 4 s window; if the copy step held the space lock (a regression), same-space uploads would block on the lock
+    // holding the other connections and the rest would time out borrowing a connection after 2 s -> 500.
     // Copy charges the upload bucket per attachment (200 > default UPLOAD_LIMIT 120): this case uses a big bucket (shape follows
     // freshLimiters({ upload }) in test/groups-v2-copy.test.ts).
     const box: { fired?: boolean; done?: boolean; reqs?: Array<Promise<LightMyRequestResponse>>; app?: FastifyInstance; a?: string; other?: string; an?: string; on?: string } = {};

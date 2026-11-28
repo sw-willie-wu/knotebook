@@ -72,7 +72,7 @@ import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
 import { oauthApiRoutes } from "./routes/oauth-api.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { lowercaseUuidParams } from "./http/uuid-params.js";
-import { assertUploadsDirWritable } from "./uploads/service.js";
+import { assertUploadsDirWritable, sweepUploadTemps, UPLOAD_TEMP_MAX_AGE_MS } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
 import { createOidcRuntimeRegistry, type OidcRuntimeRegistry } from "./auth/oidc-client.js";
 import type { OidcTestHook } from "./auth/oidc-test-hook.js";
@@ -274,6 +274,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     routerOptions: { maxParamLength: 512 },
   });
 
+  // Not awaited: a large uploads directory must not delay startup, and a failed sweep only leaves old temp files.
+  void sweepUploadTemps(deps.uploadsDir, { olderThanMs: UPLOAD_TEMP_MAX_AGE_MS, log: app.log }).catch((err: unknown) => {
+    app.log.warn({ err }, "upload temp sweep failed");
+  });
+
   // Forwarded headers without TRUST_PROXY mean an undeclared proxy: every client gets the proxy's IP, so a few
   // failed logins lock everyone out. Warn once; it's a deployment problem, not a per-request event.
   if (!deps.config.trustProxy) {
@@ -295,9 +300,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   // Top-level on purpose: inside uploadsRoutes' encapsulated context the parser wouldn't reach other routes,
   // and the CSRF test (multipart to /api/auth/login must 415) would pass without proving the allowlist works.
-  // fileSize is the registry maximum; routes/uploads.ts enforces the live limit. No `limits.files`: the route
-  // keeps the first file part and drains the rest. throwFileSizeLimit:false lets the route map `.truncated`
-  // to 413 file_too_large instead of the plugin error aborting the parts() loop.
+  // Every parts() caller passes its own fileSize (per-call limits are deep-merged over these), so this value
+  // never caps an upload. No `limits.files`: the route keeps the first file part and drains the rest.
+  // throwFileSizeLimit:false lets the routes map `.truncated` to 413 file_too_large instead of the plugin
+  // error aborting the parts() loop.
   void app.register(fastifyMultipart, {
     limits: { fileSize: SITE_LIMITS.uploadMaxBytes.max, parts: 32, fields: 16, fieldSize: 1024 },
     throwFileSizeLimit: false,
@@ -664,6 +670,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       uploadsDir: deps.uploadsDir,
       groupTestHook: deps.groupTestHook,
       storageLockTimeoutMs,
+      notifications: deps.notifications,
     })
   );
   void app.register(publicRoutes({ db: deps.db, uploadsDir: deps.uploadsDir, limiters: { publicMiss: limiters.publicMiss, publicNote: limiters.publicNote, publicUpload: limiters.publicUpload } }));

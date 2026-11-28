@@ -1,16 +1,27 @@
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
-import { columnBlockSpec, columnListBlockSpec, createKnotebookCodeBlockSpec, withGuardedExternalHTML, withKnowledgeProps, withoutKnowledgeInExternalHTML } from "@knotebook/shared";
+import {
+  columnBlockSpec,
+  columnListBlockSpec,
+  createKnotebookCodeBlockSpec,
+  uploadCategoryOfName,
+  UPLOAD_TYPES,
+  withGuardedExternalHTML,
+  withKnowledgeProps,
+  withMediaHtmlParse,
+  withoutKnowledgeInExternalHTML,
+  type UploadKind,
+} from "@knotebook/shared";
 import { CODE_BLOCK_OPTIONS } from "@/lib/code-highlight";
 import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
 import { withCaseInsensitiveCodeHighlight } from "./code-block-highlight";
 import { withColumnsLayout } from "./columns/layout-extension";
+import { withUploadStatus } from "./upload-block-status";
 
 // Media data URLs must never reach block props: BlockNote turns pasted images into data URLs
 // when there is no `uploadFile`, and that base64 would bloat the Y.Doc, `note_states` and backups.
-// Plain image files go through `uploadFile` (never base64); `classifyMediaTransfer` blocks the
-// rest (data URLs with no real `File`, e.g. an image copied from a web page). audio/video/file
-// blocks have no Upload tab and only embed URLs, so the guard doesn't distinguish types.
+// Accepted files go through `uploadFile` (never base64); `classifyMediaTransfer` blocks the
+// rest (data URLs with no real `File`, e.g. an image copied from a web page).
 
 /**
  * #43: file-type blocks' `toExternalHTML` (clipboard copy, drag `text/html`, markdown export)
@@ -33,14 +44,34 @@ import { withColumnsLayout } from "./columns/layout-extension";
  * `BlockNoteSchema.create` treats `inlineContentSpecs` as a full override: dropping the
  * `...defaultInlineContentSpecs` spread silently breaks `text`/`link` (even basic typing) with no type error.
  */
+/**
+ * The block a dropped or pasted file becomes, and the panel's `accept`: BlockNote matches the browser's type or the
+ * extension against each spec's list in turn and falls back to `file`. Image keeps `image/*` (images are judged by content).
+ * The server still decides the kind, and the block is converted when its answer differs.
+ */
+function acceptedFor(kind: Exclude<UploadKind, "image">): string[] {
+  const accept = new Set<string>();
+  for (const [mime, info] of Object.entries(UPLOAD_TYPES)) {
+    if (info.kind !== kind) continue;
+    accept.add(mime);
+    for (const ext of info.exts) accept.add(`.${ext}`);
+  }
+  return [...accept];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote generic triple; repo convention (as in shared note-schema-config.ts)
+function withFileBlockAccept<Spec extends { implementation: { meta?: any } }>(spec: Spec, fileBlockAccept: string[]): Spec {
+  return { ...spec, implementation: { ...spec.implementation, meta: { ...spec.implementation.meta, fileBlockAccept } } };
+}
+
 export const noteSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     heading: withoutKnowledgeInExternalHTML(withKnowledgeProps(defaultBlockSpecs.heading)),
-    audio: withGuardedExternalHTML(defaultBlockSpecs.audio, window.location.href),
-    file: withGuardedExternalHTML(defaultBlockSpecs.file, window.location.href),
-    image: withGuardedExternalHTML(defaultBlockSpecs.image, window.location.href),
-    video: withGuardedExternalHTML(defaultBlockSpecs.video, window.location.href),
+    audio: withUploadStatus(withFileBlockAccept(withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.audio, window.location.href)), acceptedFor("audio"))),
+    file: withUploadStatus(withFileBlockAccept(withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.file, window.location.href)), acceptedFor("file"))),
+    image: withUploadStatus(withGuardedExternalHTML(defaultBlockSpecs.image, window.location.href)),
+    video: withUploadStatus(withFileBlockAccept(withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.video, window.location.href)), acceptedFor("video"))),
     // `createReactBlockSpec` returns a factory (unlike `createReactInlineContentSpec`), so the call parentheses are required.
     mermaid: mermaidSpec(),
     // #96: `defaultBlockSpecs.codeBlock` is created with no options (no languages, no highlighter);
@@ -66,7 +97,7 @@ export function containsMediaDataUrl(text: string | null | undefined): boolean {
   return typeof text === "string" && MEDIA_DATA_URL_RE.test(text);
 }
 
-export type BlockedTransferReason = "dataUrl" | "textRepresentation" | "nonImageFile";
+export type BlockedTransferReason = "dataUrl" | "textRepresentation" | "unsupportedFile";
 
 // `vscode-editor-data` is left out: it only uses `text/plain` to build a code block and never carries a media data URL.
 const MEDIA_DATA_URL_TEXT_FORMATS = ["text/html", "text/plain", "text/markdown", "blocknote/html"] as const;
@@ -92,8 +123,9 @@ export const TEXT_REPRESENTATION_MIME_TYPES = [
  * - A `File` plus any `TEXT_REPRESENTATION_MIME_TYPES` type → `"textRepresentation"`:
  *   BlockNote's `handleFileInsertion` abandons the file path when these rank before `"Files"`;
  *   same criterion, blocked uniformly.
- * - Files, all `image/*` (empty `File.type` isn't) → allow: they create no data URL and go through `uploadFile`.
- * - Any other file → `"nonImageFile"`.
+ * - Files that are all `image/*` (empty `File.type` isn't) or named with an accepted extension → allow: they create
+ *   no data URL and go through `uploadFile`, whose pre-check uses the same rule.
+ * - Any other file → `"unsupportedFile"`.
  */
 export function classifyMediaTransfer(data: DataTransfer | null | undefined): BlockedTransferReason | null {
   if (!data) return null;
@@ -110,6 +142,6 @@ export function classifyMediaTransfer(data: DataTransfer | null | undefined): Bl
   if (TEXT_REPRESENTATION_MIME_TYPES.some((mimeType) => types.includes(mimeType))) return "textRepresentation";
 
   const fileList = Array.from(files as unknown as ArrayLike<File>);
-  const allImages = fileList.every((file) => file.type.startsWith("image/"));
-  return allImages ? null : "nonImageFile";
+  const allAccepted = fileList.every((file) => file.type.startsWith("image/") || uploadCategoryOfName(file.name) !== null);
+  return allAccepted ? null : "unsupportedFile";
 }

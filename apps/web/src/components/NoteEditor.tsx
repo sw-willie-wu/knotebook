@@ -26,6 +26,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import type { NoteDto } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/schema";
+import { bindUploadNote } from "@/collab/upload-block-status";
 import { createCodeBlockCaretExtension } from "@/collab/code-block-caret";
 import { createMermaidFenceExtension } from "@/collab/mermaid-fence";
 import { createColumnEdgeKeymapExtension } from "@/collab/columns/edge-keymap";
@@ -60,6 +61,7 @@ import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
 import { safeMediaUrl } from "@/lib/media-url";
 import { createUploadFile, type Translate } from "@/uploads/upload-file";
+import { unknownPrecheckCtx, type PrecheckCtx } from "@/uploads/precheck";
 import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
 import { createNoteSizeGuard, createNoteSizePasteHandlers, formatNoteLimit } from "@/lib/note-size-guard";
@@ -89,6 +91,7 @@ import { KnowledgeFieldsProvider } from "@/components/knowledge/fields-context";
 import { useKnowledgeEntries } from "@/components/knowledge/use-knowledge-entries";
 import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
 import { ImageZoomLayer } from "@/components/media-zoom/ImageZoomLayer";
+import { FilePreviewLayer } from "@/components/file-preview/FilePreviewLayer";
 import { ColumnDividers } from "@/components/editor/ColumnDividers";
 import { LinkLongPress } from "@/components/LinkLongPress";
 import { NoteOutline } from "@/components/outline/NoteOutline";
@@ -108,7 +111,7 @@ export { collabUserColor };
 const BLOCKED_TRANSFER_TOAST_KEYS: Record<BlockedTransferReason, string> = {
   dataUrl: "note.transferDataUrl",
   textRepresentation: "note.transferSaveFirst",
-  nonImageFile: "note.transferNonImage",
+  unsupportedFile: "uploadBlock.unsupportedTransfer",
 };
 
 /** Must be `handleDOMEvents`, not `handlePaste`/`handleDrop`: BlockNote registers `handleDOMEvents.paste` that unconditionally preventDefaults and handles it, and ProseMirror consults `handlePaste`/`handleDrop` only inside the built-in editHandlers, after `handleDOMEvents` found no taker. So the latter never run on paste, nor on a drop carrying only `Files`. `someProp` checks directly passed editorProps before plugins, so this runs before BlockNote. Returns true = handled, BlockNote paste logic never runs; false = falls through, so ordinary text paste is unaffected. `view` is unused and typed `unknown` so tests can pass `null`. */
@@ -143,8 +146,8 @@ export interface NoteEditorOptionsInput {
   canSendCursor?: () => boolean;
   /** Late-bound (the limit loads after the editor is created); asked once per paste/drop after parsing and before insertion with the estimated growth in bytes; true = would exceed (already notified), insert rejected. Omitted = no check. */
   sizeGuard?: (incomingBytes: number) => boolean;
-  /** Late-bound getter, read at each upload: config loads after the editor is created and can change. Omitted or undefined = no pre-check. */
-  maxUploadBytes?: () => number | undefined;
+  /** Read at each upload (limits and room are fetched fresh); omitted = limits and room unknown, the server decides. */
+  precheckCtx?: () => Promise<PrecheckCtx>;
   /** Late-bound; `null` or omitted = typing `#name` and pasting a line of tags are left as ordinary text. */
   hashTagHooks?: HashTagHooksRef;
 }
@@ -161,7 +164,7 @@ export function buildNoteEditorOptions({
   siteLinks,
   canSendCursor,
   sizeGuard,
-  maxUploadBytes,
+  precheckCtx,
   hashTagHooks,
 }: NoteEditorOptionsInput) {
   const noHashTagHooks: HashTagHooksRef = { current: null };
@@ -174,8 +177,8 @@ export function buildNoteEditorOptions({
       language,
       user: { id: user.id, name: user.name, color: collabUserColor(user.id) },
     }),
-    // `createUploadFile` never rejects (see its header): on failure it toasts and removes the placeholder itself.
-    uploadFile: createUploadFile({ noteId, editorRef, translate, maxUploadBytes }),
+    // `createUploadFile` never rejects (see its header); the queue finishes the upload in the background.
+    uploadFile: createUploadFile({ noteId, translate, precheckCtx: precheckCtx ?? unknownPrecheckCtx }),
     // Render-side URL guard (issue #12): note content is a Yjs document, so any collaborator with editor permission can write block props directly, bypassing the UI Embed tab checks. BlockNote runs previews and "open/download" through `resolveFileUrl` (verified against @blocknote/core and react 0.52.1 dist), the one place that intercepts before every sink without rewriting block specs. It must allow relative URLs (the input-side absolute-http(s) rule would block every uploaded image): our own uploads are `/api/uploads/<id>` (rules in shared `note-schema-config.ts`, web base in `lib/media-url.ts`).
     resolveFileUrl: (url: string) => Promise.resolve(safeMediaUrl(url)),
     pasteHandler: createMarkdownPasteHandler(combinePasteHooks(createHashTagPasteHook(hashTagHooks ?? noHashTagHooks), createSiteLinkPasteHook(siteLinks))),
@@ -367,7 +370,8 @@ export interface NoteEditorProps {
   onCursorScroller?: (scroller: CursorScroller | null) => void;
   notePath?: string;
   noteMaxBytes?: number;
-  maxUploadBytes?: number;
+  /** A new provider (the person's view of the space changed) is picked up without rebuilding the editor. */
+  precheckCtx?: () => Promise<PrecheckCtx>;
   pageUndoShortcut?: boolean;
 }
 
@@ -398,7 +402,7 @@ export function NoteEditor({
   onCursorScroller,
   notePath,
   noteMaxBytes,
-  maxUploadBytes,
+  precheckCtx,
   pageUndoShortcut = false,
 }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
@@ -468,8 +472,9 @@ export function NoteEditor({
   // Limit and document are read through refs (closures are fixed at creation).
   const noteMaxBytesRef = useRef(noteMaxBytes);
   noteMaxBytesRef.current = noteMaxBytes;
-  const maxUploadBytesRef = useRef(maxUploadBytes);
-  maxUploadBytesRef.current = maxUploadBytes;
+  const precheckCtxRef = useRef(precheckCtx);
+  precheckCtxRef.current = precheckCtx;
+  const [readPrecheckCtx] = useState(() => () => (precheckCtxRef.current ?? unknownPrecheckCtx)());
   const docRef = useRef(doc);
   docRef.current = doc;
   const [sizeGuard] = useState(() =>
@@ -525,13 +530,20 @@ export function NoteEditor({
       siteLinks: siteLinksRef,
       canSendCursor: () => editableRef.current,
       sizeGuard,
-      maxUploadBytes: () => maxUploadBytesRef.current,
+      precheckCtx: readPrecheckCtx,
       hashTagHooks: hashTagHooksRef,
     }),
     // Language and noteId are not in deps: the dictionary is read once at creation, and a noteId change always changes `doc`/`provider` (`collab/useCollab.ts`), so a language switch applies after reload (rebuilding would remount the collab binding, not worth it).
     [doc, provider],
   );
   editorRef.current = editor;
+  // Bound in the render that created the editor: after a note switch, `noteId` already names the next note for a few
+  // renders while this editor still shows the previous one.
+  const boundEditorRef = useRef<object | null>(null);
+  if (boundEditorRef.current !== editor) {
+    boundEditorRef.current = editor;
+    bindUploadNote(editor, noteId);
+  }
   // When a whole block is selected, a click on blank area becomes a caret so the outline disappears.
   const onScrollAreaMouseDown = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
@@ -722,6 +734,7 @@ export function NoteEditor({
                   getItems={getItems}
                   getSlashItems={getSlashItems}
                   notePath={notePath}
+                  precheckCtx={readPrecheckCtx}
                 >
                   {/* sole owner of the formatting toolbar controller and AI box; NoteEditorView never touches AI context */}
                   <SelectionAiController />
@@ -732,6 +745,7 @@ export function NoteEditor({
                 <KnowledgeLayerLazy container={columnEl} entries={knowledgeEntries} editable={editable} noteId={noteId} controller={knowledge} editor={editor} />
                 <ImageZoomLayer container={columnEl} editable={editable} editor={editor} />
               </MediaZoomProvider>
+              <FilePreviewLayer container={columnEl} />
               {/* nothing to resize when read-only */}
               {editable && <ColumnDividers container={columnEl} editor={editor} />}
               {mobileToolbar && !footerInScroll && <MobileToolbarSpacer />}
@@ -817,10 +831,11 @@ export interface NoteEditorViewProps {
   getSlashItems: (query: string) => Promise<DefaultReactSuggestionItem[]>;
   children?: ReactNode;
   notePath?: string;
+  precheckCtx?: () => Promise<PrecheckCtx>;
 }
 
 /** Separate exported component so the `filePanel={false}` and `useMemo` identity contracts can be tested with a real editor (`NoteEditorView.test.tsx`). */
-export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems, children, notePath }: NoteEditorViewProps) {
+export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems, children, notePath, precheckCtx }: NoteEditorViewProps) {
   const phone = useIsPhone();
   // If the block menu was open when narrowing to phone width, the controller unmounts but core's menu stays frozen: unfreeze it (state must exist first or core throws).
   useEffect(() => {
@@ -828,8 +843,11 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
     const sideMenu = editor.getExtension(SideMenuExtension);
     if (sideMenu?.store.state?.show) sideMenu.unfreezeMenu();
   }, [phone, editor]);
-  // `createFilePanel(noteId)` returns a new component type: pin with `useMemo` or `FilePanelController` remounts it.
-  const filePanel = useMemo(() => createFilePanel(noteId), [noteId]);
+  // `createFilePanel(noteId)` returns a new component type: pin with `useMemo` or `FilePanelController` remounts it; the
+  // pre-check getter goes through a ref so a new one doesn't rebuild it.
+  const precheckCtxRef = useRef(precheckCtx);
+  precheckCtxRef.current = precheckCtx;
+  const filePanel = useMemo(() => createFilePanel(noteId, () => (precheckCtxRef.current ?? unknownPrecheckCtx)()), [noteId]);
 
   // y-prosemirror undo plugin destroys the UndoManager when the PM view is destroyed, and `editable` flipping remounts the view: without this Ctrl+Z dies after editable goes false to true (#97, see `@/collab/undo`). Lives here because this component holds `<BlockNoteView>`.
   useCollabUndoLifeline(editor);

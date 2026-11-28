@@ -12,7 +12,7 @@ export type GroupRacePoint =
   | "note-move-slug-candidate"
   | "note-copy-target-locked"
   | "note-copy-locked"
-  /** After attachment files are copied, before the space lock and the copy's insert; `ctx.noteId` is the source (the copy doesn't exist yet). Tests throw here to simulate a failure. */
+  /** Outside any transaction, after attachment files are copied to their temp files; `note-copy-authorized` follows. `ctx.noteId` is the source (the copy doesn't exist yet). Tests throw here to simulate a failure. */
   | "note-copy-files-copied"
   /** Window: note moved after the by-path fetch. */
   | "path-resolved"
@@ -27,6 +27,8 @@ export type GroupRacePoint =
   | "trash-purge-locked"
   | "note-move-authorized"
   | "note-copy-authorized"
+  /** Outside any transaction: the whole file is in its temp file and passed the whole-file checks; `upload-authorized` follows, right before the transaction. */
+  | "upload-received"
   | "upload-authorized"
   | "folder-authorized"
   | "folder-structure-locked"

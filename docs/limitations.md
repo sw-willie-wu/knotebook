@@ -8,7 +8,7 @@ These are the limitations to know before you deploy Knotebook or trust it with y
 
 - **Some settings in `.env` only apply the first time.** `POSTGRES_PASSWORD`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` take effect only while the database is empty, and changing them later does nothing; for `ADMIN_EMAIL` and `ADMIN_PASSWORD` there is not even an error or warning. To change the database password afterwards, change it in Postgres and update `DATABASE_URL`. `docker compose down -v` discards every named volume, the uploads included: every uploaded image is gone and, with the bundled database, every note as well. See [Compose services and volumes](./self-hosting.md#compose-services-and-volumes), [Setting `POSTGRES_PASSWORD` after the first `docker compose up` has no effect](./known-limitations/operations.md) and [`ADMIN_EMAIL`/`ADMIN_PASSWORD` only take effect on first initialization](./known-limitations/operations.md).
 
-- **Uploaded images live in a Docker named volume.** The default `docker-compose.yml` mounts it; if you customize the compose file and drop the `uploads` mount, uploaded images vanish the next time the `app` container is rebuilt. See [The uploads directory is a Docker named volume](./known-limitations/operations.md).
+- **Uploaded files live in a Docker named volume.** The default `docker-compose.yml` mounts it; if you customize the compose file and drop the `uploads` mount, uploaded files vanish the next time the `app` container is rebuilt. See [The uploads directory is a Docker named volume](./known-limitations/operations.md).
 
 - **Behind a reverse proxy, set `TRUST_PROXY`.** Without it every visitor shares the proxy's address, so one client can lock out logins or rate-limit the public share pages for everyone behind that proxy. See [Deployment prerequisites](./self-hosting.md#deployment-prerequisites) and [Behind a reverse proxy with `TRUST_PROXY` unset, one client can rate-limit the public share pages for everyone](./known-limitations/operations.md).
 
@@ -29,8 +29,6 @@ These are the limitations to know before you deploy Knotebook or trust it with y
 - **Applying a version replaces the whole note.** It overwrites changes nobody saved as a version, other people's included, and Ctrl+Z can't undo it; to go back, apply another version. It usually also makes earlier AI edits impossible to revert. See [Version history](./known-limitations/version-history.md).
 
 - **Shared note addresses can break, or start pointing at another note.** Unless you set a custom URL, a note's address follows its title and changes, with no redirect, whenever anyone with edit access renames it. A freed address can later be taken by another of the owner's notes, and a username you rename away from can be taken by someone else, so old links can open a different note. Links to notes inside Knotebook are not affected. See [A note's automatic URL changes the moment its title does](./known-limitations/note-urls.md), [A released slug can be re-used by the same owner's other notes](./known-limitations/note-urls.md) and [A username you rename away from is free for anyone to take](./known-limitations/note-urls.md).
-
-- **Only image blocks can upload files.** Audio, video and file blocks only embed a URL to a file hosted somewhere else. See [Only image blocks can upload](./known-limitations/uploads.md).
 
 ## Data and retention
 

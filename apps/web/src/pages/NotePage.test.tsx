@@ -60,7 +60,7 @@ const VERSION_1 = vi.hoisted(() => ({
   base: null,
   createdAt: "2026-01-01T00:00:00.000Z",
 }));
-const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean), noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined, restored: 0 }));
+const editorMock = vi.hoisted(() => ({ scroller: null as null | ((c: unknown) => boolean), noteMaxBytes: undefined as number | undefined, precheckCtx: undefined as undefined | (() => Promise<Record<string, unknown>>), restored: 0 }));
 const siteConfig = vi.hoisted(() => ({ noteMaxBytes: undefined as number | undefined, maxUploadBytes: undefined as number | undefined }));
 // #297: `mock-column` uses the real `useNoteWidth(noteId)`, and the width test relies on it to verify that NotePage hands the header menu and the editor the same id.
 vi.mock("@/components/NoteEditor", async () => {
@@ -77,7 +77,7 @@ vi.mock("@/components/NoteEditor", async () => {
     previewSlot,
     onCursorScroller,
     noteMaxBytes,
-    maxUploadBytes,
+    precheckCtx,
     mobileToolbar,
     fabClearance,
   }: {
@@ -96,10 +96,10 @@ vi.mock("@/components/NoteEditor", async () => {
     previewSlot?: ReactNode;
     onCursorScroller?: (s: unknown) => void;
     noteMaxBytes?: number;
-    maxUploadBytes?: number;
+    precheckCtx?: () => Promise<Record<string, unknown>>;
   }) {
     editorMock.noteMaxBytes = noteMaxBytes;
-    editorMock.maxUploadBytes = maxUploadBytes;
+    editorMock.precheckCtx = precheckCtx;
     const versions = useVersions();
     const [width] = useNoteWidth(noteId);
     React.useEffect(() => {
@@ -451,7 +451,7 @@ describe("NotePage", () => {
     siteConfig.noteMaxBytes = undefined;
     siteConfig.maxUploadBytes = undefined;
     editorMock.noteMaxBytes = undefined;
-    editorMock.maxUploadBytes = undefined;
+    editorMock.precheckCtx = undefined;
     window.history.replaceState(null, "", "/");
     // The toast store is module-level; without resetting it the previous test's toast stays on screen.
     dismissAllToasts();
@@ -464,12 +464,63 @@ describe("NotePage", () => {
     siteConfig.maxUploadBytes = undefined;
   });
 
-  it("the configured maxUploadBytes (GET /api/auth/config) is handed to the editor (for pre-upload checks on paste and image drop)", async () => {
-    siteConfig.maxUploadBytes = 654_321;
-    vi.stubGlobal("fetch", mockFetch());
-    collab.provider.synced = true;
-    renderNotePage("my-note");
-    await waitFor(() => expect(editorMock.maxUploadBytes).toBe(654_321));
+  describe("the pre-upload check handed to the editor", () => {
+    /** `mockFetch` plus the usage routes and a groups list; returns the URLs requested after `since()` is called. */
+    function stubWithUsage(note: NoteDto, groups: unknown[] = []) {
+      const base = mockFetch(note);
+      const urls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          urls.push(url);
+          if (url === "/api/storage" || url === "/api/groups/g1/storage") return Promise.resolve(Response.json({ usedBytes: 300, quotaBytes: 1000 }));
+          if (url === "/api/groups") return Promise.resolve(Response.json(groups));
+          return base(input, init);
+        }),
+      );
+      return { since: () => urls.splice(0) };
+    }
+
+    async function providerAfterOpen() {
+      collab.provider.synced = true;
+      renderNotePage("my-note");
+      await waitFor(() => expect(editorMock.precheckCtx).toBeDefined());
+    }
+
+    it("the owner's personal note: the configured limits and the personal space's room", async () => {
+      siteConfig.maxUploadBytes = 654_321;
+      const fetches = stubWithUsage(NOTE);
+      await providerAfterOpen();
+      fetches.since();
+      await expect(editorMock.precheckCtx!()).resolves.toMatchObject({ maxUploadBytes: 654_321, roomBytes: 700 });
+      expect(fetches.since()).toEqual(["/api/auth/config", "/api/storage"]);
+    });
+
+    it("someone else's personal note (shared with an editor): no usage request, room unknown", async () => {
+      const fetches = stubWithUsage({ ...NOTE, role: "editor", ownerId: "u2", permissions: EDITOR_PERMS });
+      await providerAfterOpen();
+      fetches.since();
+      await expect(editorMock.precheckCtx!()).resolves.toMatchObject({ roomBytes: undefined });
+      expect(fetches.since()).toEqual(["/api/auth/config"]);
+    });
+
+    it.each([
+      [true, ["/api/auth/config", "/api/groups/g1/storage"], 700],
+      [false, ["/api/auth/config"], undefined],
+    ])("a group note, managing the group %s: usage only for managers", async (canManageGroup, requested, room) => {
+      const fetches = stubWithUsage(
+        { ...NOTE, ownerId: null, ownerHandle: null, role: "editor", groupId: "g1", group: { id: "g1", name: "G" }, permissions: EDITOR_PERMS },
+        [{ id: "g1", name: "G", canManageGroup }],
+      );
+      await providerAfterOpen();
+      // The group list arrives after the note; the provider follows it.
+      await waitFor(async () => {
+        fetches.since();
+        await expect(editorMock.precheckCtx!()).resolves.toMatchObject({ roomBytes: room });
+        expect(fetches.since()).toEqual(requested);
+      });
+    });
   });
 
   it("opening with an old-form uuid ref: resolves the note, replaces the URL with the new canonical form, mounts the editor", async () => {

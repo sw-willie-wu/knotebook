@@ -327,12 +327,12 @@ describe("#108 tools/list", () => {
       `create the note without it and the note still exists. Colors, side-by-side columns and sizes work as in edit_note. ${WRITE_LINK} ${CREATE_KNOWLEDGE_SENTENCE}`;
     const SECTION_MD =
       "This page of the section, as markdown. The first page starts with the section's heading line — except `_top`, which has no heading; " +
-      "a later page resumes where the last one stopped. Colored text and blocks come back as HTML, as do images shown at a set width, tables " +
+      "a later page resumes where the last one stopped. Colored text and blocks come back as HTML, as do images shown at a set width, audio, video and file blocks, tables " +
       "with set column widths, and the <div> tags around side-by-side columns; write it back unchanged to keep them (edit_note takes rows of 2 to 4 columns). " +
       "Outside code and blocks that come back as HTML, a `<` that could start an HTML tag or comment comes back as `\\<`; write it back unchanged to keep it as text. " +
       READ_LINK;
     const SECTION_IMAGES =
-      'An uploaded image\'s address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with a caption or shown at a set width, in `<figure><img … src="/api/uploads/<id>" …>…</figure>`; see them with read_note_image.';
+      'An uploaded file\'s address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)`, in `[name](/api/uploads/<id>)`, in `<audio>`, `<video>` or `<embed>` with `src="/api/uploads/<id>"` (inside a `<figure>` when it has a caption) or, for an image with a caption or shown at a set width, in `<figure><img … src="/api/uploads/<id>" …>…</figure>`; read an image with read_note_image.';
 
     expect(byName("edit_note").inputSchema.properties.markdown!.description).toBe(EDIT_MD);
     expect(byName("create_note").inputSchema.properties.content!.description).toBe(CREATE_CONTENT);
@@ -346,6 +346,7 @@ describe("#108 tools/list", () => {
       "(in a table cell",
       "Uploaded images appear as",
       "An uploaded image's address is `/api/uploads/<id>`",
+      "An uploaded image's address contains its upload id",
     ]) {
       expect(res.body, gone).not.toContain(JSON.stringify(gone).slice(1, -1));
     }

@@ -16,6 +16,7 @@ import { X } from "@/components/ui/icons";
 import { nextMermaidId, rewriteMermaidId } from "@/lib/mermaid";
 import type { ZoomSource } from "./context";
 import { ZoomSkeleton } from "./LightboxFallback";
+import { lockRootScroll } from "./root-scroll-lock";
 import { fitView, panBy, toggleZoom, wheelFactor, zoomAt, type Point, type Size, type ZoomView } from "./zoom-math";
 
 /** Zoom factor per `+`/`-` press. */
@@ -62,33 +63,6 @@ function finite(p: Point): boolean {
 
 function positiveSize(size: Size): boolean {
   return Number.isFinite(size.width) && Number.isFinite(size.height) && size.width > 0 && size.height > 0;
-}
-
-/**
- * Locks page scroll while zoom is open: inline `overflow: hidden` on `<html>`, plus `scrollbar-gutter: stable` when there
- * was a reserved scrollbar, so the scrollbar space stays and the layout doesn't jump right. Neither is inherited, so only
- * `<html>` restyles, not the whole document. The returned function restores both original inline values (incl. `!important`).
- * Locks only when the primary pointer is a mouse/trackpad or the page has a reserved scrollbar (e.g. Windows in tablet
- * mode): touch devices without one are left alone, since the whole screen is `touch-none` and the page behind can't be touched.
- */
-function lockRootScroll(): () => void {
-  const root = document.documentElement;
-  const hasGutter = window.innerWidth - root.clientWidth > 0;
-  const finePointer = typeof window.matchMedia === "function" && window.matchMedia("(pointer: fine)").matches;
-  if (!finePointer && !hasGutter) return () => undefined;
-  const saved = (["overflow", "scrollbar-gutter"] as const).map(name => ({
-    name,
-    value: root.style.getPropertyValue(name),
-    priority: root.style.getPropertyPriority(name),
-  }));
-  root.style.setProperty("overflow", "hidden");
-  if (hasGutter) root.style.setProperty("scrollbar-gutter", "stable");
-  return () => {
-    for (const { name, value, priority } of saved) {
-      if (value === "") root.style.removeProperty(name);
-      else root.style.setProperty(name, value, priority);
-    }
-  };
 }
 
 function distance(a: Point, b: Point): number {

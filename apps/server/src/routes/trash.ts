@@ -1,7 +1,5 @@
 // Purge-all is the client sending every listed id: notes trashed after the list loaded are not purged. Callers without trash rights get the same skipped:not_found as for a nonexistent id.
 // No transaction here; they live in trash/service.ts.
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -14,7 +12,7 @@ import { loadNoteFields, toNoteDto } from "../notes/note-dto.js";
 import { UUID_RE, resolveNoteAccess, resolveTrashedNoteAccess } from "../notes/service.js";
 import { listTrash, loadTrashPreview, readTrashRetentionDays } from "../trash/list.js";
 import { purgeTrashed, restoreTrashed, type TrashBatchResult, type TrashServiceDeps } from "../trash/service.js";
-import { setUploadResponseHeaders, uploadFilePath } from "../uploads/service.js";
+import { sendUploadFile } from "../uploads/service.js";
 
 /** Counted on raw ids (before dedup). */
 const idsBodySchema = z.object({ ids: z.array(z.string()).min(1).max(TRASH_BATCH_MAX) }).strict();
@@ -67,15 +65,7 @@ export function trashRoutes(deps: TrashServiceDeps) {
       if (!row || row.noteId !== noteId) {
         return sendError(reply, 404, "not_found", "No file with that id.");
       }
-      const filePath = uploadFilePath(deps.uploadsDir, row.id);
-      try {
-        await stat(filePath);
-      } catch {
-        request.log.error({ uploadId: row.id }, "DB has upload record but file is missing on disk");
-        return sendError(reply, 404, "not_found", "No file with that id.");
-      }
-      setUploadResponseHeaders(reply, row.mime);
-      return reply.send(createReadStream(filePath));
+      return sendUploadFile(request, reply, row, deps.uploadsDir);
     });
 
     app.post("/api/trash/restore", { preHandler: app.authenticate }, async (request, reply) => {

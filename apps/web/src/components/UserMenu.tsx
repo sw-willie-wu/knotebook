@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { tourTarget } from "@/lib/tour-targets";
+import { clearUploadQueue } from "@/uploads/upload-queue-store";
 
 const LANGUAGES: { code: "en" | "zh-TW"; labelKey: string }[] = [
   { code: "en", labelKey: "userMenu.languageEn" },
@@ -34,8 +35,8 @@ const LANGUAGES: { code: "en" | "zh-TW"; labelKey: string }[] = [
 
 const THEMES: Theme[] = ["light", "dark", "system"];
 
-/** `bell` (row variant only) sits over the trigger's row just left of the gear, as a sibling: a button inside the trigger button is invalid. The trigger sets `aria-label={user.displayName}` and hides avatar/gear so existing e2e name queries keep working. Renders nothing when `user` is missing (guard for use outside `<RequireAuth>`). */
-export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"; bell?: ReactNode } = {}) {
+/** `bell` (row variant only) sits over the trigger's row just left of the gear, as a sibling: a button inside the trigger button is invalid; `uploads` goes left of the bell the same way. The trigger sets `aria-label={user.displayName}` and hides avatar/gear so existing e2e name queries keep working. Renders nothing when `user` is missing (guard for use outside `<RequireAuth>`). */
+export function UserMenu({ variant = "row", bell, uploads }: { variant?: "row" | "avatar"; bell?: ReactNode; uploads?: ReactNode } = {}) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -55,6 +56,7 @@ export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"
   async function handleLogout(): Promise<void> {
     await logout();
     release(); // search text belongs to the user signing out: clear it (#369)
+    clearUploadQueue();
     // Sign-out deliberately omits `?next=` (#131): it means "leaving", not "blocked" (contrast `useSessionGate` in `auth/guards.tsx`). `ChangePasswordPage` and `NotePage` session expiry also go to bare `/login`.
     navigate("/login", { replace: true });
   }
@@ -101,7 +103,13 @@ export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"
               size={24}
               className="bg-primary text-primary-foreground"
             />
-            <span aria-hidden="true" className={cn("min-w-0 flex-1 truncate", bell !== undefined && "mr-10")}>
+            <span
+              aria-hidden="true"
+              className={cn(
+                "min-w-0 flex-1 truncate",
+                bell !== undefined && "mr-10 group-has-[[data-upload-indicator]]/slot:mr-[8.5rem] pointer-coarse:group-has-[[data-upload-indicator]]/slot:mr-[9.25rem]",
+              )}
+            >
               {user.displayName}
             </span>
             <Settings aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -218,10 +226,14 @@ export function UserMenu({ variant = "row", bell }: { variant?: "row" | "avatar"
   );
   if (avatar || bell === undefined) return menu;
   return (
-    <div className="relative" {...{ [SIDEBAR_PANEL_ANCHOR_ATTR]: "" }}>
+    <div className="group/slot relative" {...{ [SIDEBAR_PANEL_ANCHOR_ATTR]: "" }}>
       {menu}
-      {/* right edge = 6 px trigger padding + 16 px gear + 12 px gap = 34 px; the 8 px coarse-pointer hit extension stays 4 px clear of the gear. The name's mr-10 (40 px) + 8 px flex gap + 16 px gear + 6 px padding reserves 70 px = bell's 28 px box + 34 px, plus 8 px before the bell. */}
-      <div className="absolute right-[34px] top-1/2 -translate-y-1/2">{bell}</div>
+      {/* right edge = 6 px trigger padding + 16 px gear + 12 px gap = 34 px; the 8 px coarse-pointer hit extension stays 4 px clear of the gear. The name's mr-10 (40 px) + 8 px flex gap + 16 px gear + 6 px padding reserves 70 px = bell's 28 px box + 34 px, plus 8 px before the bell.
+          With the upload pill the reserve grows by its widest form plus the 4 px gap (16 px on coarse pointers, so the two 8 px hit extensions don't overlap). The pill's width is estimated from its classes, not measured: 36 px of padding, ring and gap plus roughly 56 px of 12 px tabular text for "10 · 100%". */}
+      <div className="absolute right-[34px] top-1/2 flex -translate-y-1/2 items-center gap-1 pointer-coarse:gap-4">
+        {uploads}
+        {bell}
+      </div>
     </div>
   );
 }

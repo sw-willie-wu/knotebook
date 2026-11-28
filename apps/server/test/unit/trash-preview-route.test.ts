@@ -48,7 +48,7 @@ const SAMPLE_PREVIEW: TrashPreviewDto = {
   ydoc: EMPTY_YDOC_UPDATE_B64,
 };
 
-function makeUploadDb(row: { id: string; noteId: string; mime: string } | undefined): Db {
+function makeUploadDb(row: { id: string; noteId: string; mime: string; fileName: string | null } | undefined): Db {
   return {
     select: () => ({
       from: () => ({
@@ -60,7 +60,7 @@ function makeUploadDb(row: { id: string; noteId: string; mime: string } | undefi
   } as unknown as Db;
 }
 
-async function buildUnitApp(opts: { authenticated?: boolean; uploadRow?: { id: string; noteId: string; mime: string }; uploadsDir?: string } = {}) {
+async function buildUnitApp(opts: { authenticated?: boolean; uploadRow?: { id: string; noteId: string; mime: string; fileName: string | null }; uploadsDir?: string } = {}) {
   const app = Fastify({ logger: false });
   app.decorate("authenticate", async (request, reply) => {
     if (opts.authenticated === false) {
@@ -207,14 +207,14 @@ describe("GET /api/trash/:id/uploads/:uploadId", () => {
 
     const appCrossNote = await buildUnitApp({
       uploadsDir: dir,
-      uploadRow: { id: UPLOAD_ID, noteId: OTHER_NOTE_ID, mime: "image/png" },
+      uploadRow: { id: UPLOAD_ID, noteId: OTHER_NOTE_ID, mime: "image/png", fileName: null },
     });
     const crossNote = await appCrossNote.inject({ method: "GET", url: `/api/trash/${NOTE_ID}/uploads/${UPLOAD_ID}` });
     await appCrossNote.close();
 
     const appMissingFile = await buildUnitApp({
       uploadsDir: dir,
-      uploadRow: { id: UPLOAD_ID, noteId: NOTE_ID, mime: "image/png" },
+      uploadRow: { id: UPLOAD_ID, noteId: NOTE_ID, mime: "image/png", fileName: null },
     });
     const missingFile = await appMissingFile.inject({ method: "GET", url: `/api/trash/${NOTE_ID}/uploads/${UPLOAD_ID}` });
     await appMissingFile.close();
@@ -231,7 +231,7 @@ describe("GET /api/trash/:id/uploads/:uploadId", () => {
     mockResolveTrashedNoteAccess.mockResolvedValue(true);
     const app = await buildUnitApp({
       uploadsDir: dir,
-      uploadRow: { id: UPLOAD_ID, noteId: NOTE_ID, mime: "image/png" },
+      uploadRow: { id: UPLOAD_ID, noteId: NOTE_ID, mime: "image/png", fileName: null },
     });
 
     const res = await app.inject({
@@ -244,6 +244,26 @@ describe("GET /api/trash/:id/uploads/:uploadId", () => {
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.headers["content-security-policy"]).toBe(UPLOAD_CSP);
     expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    await app.close();
+  });
+
+  it("answers a Range request with 206 and the requested bytes", async () => {
+    const payload = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const dir = makeUploadsDir(UPLOAD_ID, payload);
+    mockResolveTrashedNoteAccess.mockResolvedValue(true);
+    const app = await buildUnitApp({
+      uploadsDir: dir,
+      uploadRow: { id: UPLOAD_ID, noteId: NOTE_ID, mime: "image/png", fileName: null },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/trash/${NOTE_ID}/uploads/${UPLOAD_ID}`,
+      headers: { range: "bytes=0-3" },
+    });
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe("bytes 0-3/8");
+    expect(res.rawPayload).toEqual(payload.subarray(0, 4));
     await app.close();
   });
 });

@@ -12,6 +12,9 @@ import { stripKnowledgeDataAttrs } from "./knowledge-html.js";
 import { formatKnowledgeComment } from "./knowledge-markdown.js";
 import { readKnowledgeInfo, type KnowledgeInfo } from "./knowledge.js";
 import { isShownColor } from "./note-colors.js";
+import { buildMediaElement, isBuiltMediaElement, isMediaBlockWithUrl, type MediaBlockLike } from "./note-media-html.js";
+import { mapBlocksCow } from "./note-markdown-write.js";
+import { safeMediaUrl } from "./note-schema-config.js";
 import { clampSizePx } from "./note-sizes.js";
 import { unescapeAttributeAngles } from "./serialized-html.js";
 import { escapeLinkText, lessThanOpensMarkup } from "./site-link.js";
@@ -31,7 +34,7 @@ const colorStyleType = (el: Element): keyof typeof STYLE_CSS | null => {
   const t = el.getAttribute("data-style-type");
   return t === "textColor" || t === "backgroundColor" ? t : null;
 };
-/** File blocks export as links and HTML can't restore them, so their background color is dropped. */
+/** Media blocks' background color isn't carried by the read form, so it is dropped. */
 const isFileBlock = (el: Element): boolean => el.hasAttribute("data-url") && (el.tagName === "A" || el.tagName === "DIV");
 const isDisplayableColor = (v: string | null): v is string => v !== null && isShownColor(v);
 /** The parser drops empty `<p>`, so a color on an empty block can't round-trip; empty table cells are kept. */
@@ -58,6 +61,8 @@ const isSizedTable = (el: Element): boolean =>
   el.tagName === "TABLE" &&
   Array.from((el as HTMLTableElement).rows[0]?.cells ?? []).some(c => (c.getAttribute("colwidth") ?? "").split(",").some(s => clampSizePx(Number(s)) !== null));
 const hasSizes = (root: Element): boolean => elementsOf(root).some(el => imageWidth(el) !== null || isSizedTable(el));
+/** Media blocks go out as HTML like sized images: the converter would add `controls` and drop `data-name` and `width`. */
+const hasMedia = (root: Element): boolean => elementsOf(root).some(isBuiltMediaElement);
 
 function normalizeSizes(box: Element): void {
   for (const table of Array.from(box.querySelectorAll("table"))) {
@@ -362,7 +367,7 @@ const kindOf = (n: Node): Kind => {
   if (n.nodeType !== 1) return "none";
   const el = n as Element;
   if (isRow(el)) return "row";
-  if (hasBlockColor(el) || hasSizes(el)) return "block";
+  if (hasBlockColor(el) || hasSizes(el) || hasMedia(el)) return "block";
   return colorSpans(el).length > 0 ? "inline" : "none";
 };
 type Ctx = { tokens: Map<string, string>; inlineOk: boolean; brToken: string | null; breaks: number };
@@ -422,10 +427,73 @@ function rowMarkdown(row: Element, ctx: Ctx): string {
 type AnyEditor = BlockNoteEditor<any, any, any>;
 type Blocks = Parameters<AnyEditor["blocksToHTMLLossy"]>[0];
 
-function convertBlocks(editor: AnyEditor, blocks: Blocks): string {
-  const raw = editor.blocksToHTMLLossy(blocks);
+/** Private-use characters from the top down, away from the bottom-up ones `uniquePlaceholder` takes; null when all are in use. */
+function freeMarkerChar(haystack: string): string | null {
+  for (let cp = 0xf8ff; cp >= 0xe000; cp -= 1) {
+    const c = String.fromCharCode(cp);
+    if (!haystack.includes(c)) return c;
+  }
+  return null;
+}
+
+/**
+ * BlockNote's export of audio, video and file blocks is a bare player or a plain link, which can't be read back as the block.
+ * Each such block is exported as a placeholder paragraph and swapped for its canonical HTML (note-media-html.ts) afterwards;
+ * with no media block the export is untouched. A swap that doesn't account for every placeholder is abandoned.
+ */
+let warnedMediaFallback = false;
+function exportWithMedia(editor: AnyEditor, blocks: Blocks): { raw: string; tpl: HTMLTemplateElement } {
+  const plain = (): { raw: string; tpl: HTMLTemplateElement } => {
+    const raw = editor.blocksToHTMLLossy(blocks);
+    const tpl = document.createElement("template");
+    tpl.innerHTML = raw;
+    return { raw, tpl };
+  };
+  const lossy = (): { raw: string; tpl: HTMLTemplateElement } => {
+    if (!warnedMediaFallback) {
+      warnedMediaFallback = true;
+      console.warn("media blocks exported in the lossy form: no placeholder could be used (logged once per process)");
+    }
+    return plain();
+  };
+  const source = blocks ?? editor.document;
+  if (!containsMedia(source)) return plain();
+  const mark = freeMarkerChar(JSON.stringify(source));
+  if (mark === null) return lossy();
+  const media: MediaBlockLike[] = [];
+  const marked = mapBlocksCow(source, b => {
+    if (!isMediaBlockWithUrl(b)) return b;
+    media.push(b);
+    return { type: "paragraph", content: `${mark}${media.length - 1}${mark}`, children: b.children };
+  }) as Blocks;
+  const raw = editor.blocksToHTMLLossy(marked);
   const tpl = document.createElement("template");
   tpl.innerHTML = raw;
+  const re = new RegExp(`^${mark}(\\d+)${mark}$`);
+  const swaps: Array<[Element, MediaBlockLike]> = [];
+  for (const p of Array.from(tpl.content.querySelectorAll("p"))) {
+    const m = re.exec(p.textContent ?? "");
+    if (m !== null) swaps.push([p, media[Number(m[1])]!]);
+  }
+  if (swaps.length !== media.length) return lossy();
+  // The placeholder path skips the schema's guarded export, so the same URL guard applies here.
+  for (const [p, b] of swaps) p.replaceWith(buildMediaElement(b, safeMediaUrl(b.props.url!, document.baseURI)));
+  return { raw: tpl.innerHTML, tpl };
+}
+
+function containsMedia(blocks: readonly unknown[]): boolean {
+  const stack: unknown[] = [...blocks];
+  while (stack.length > 0) {
+    const b = stack.pop();
+    if (isMediaBlockWithUrl(b)) return true;
+    const children = (b as { children?: unknown } | null)?.children;
+    if (Array.isArray(children)) for (const c of children) stack.push(c);
+  }
+  return false;
+}
+
+function convertBlocks(editor: AnyEditor, blocks: Blocks): string {
+  const { raw, tpl } = exportWithMedia(editor, blocks);
   // Comments are the only way knowledge reaches markdown, so whatever the exported HTML carries is dropped no matter how the schema exports it.
   const html = /data-knowledge-/i.test(raw) && stripKnowledgeDataAttrs(tpl.content) ? tpl.innerHTML : raw;
   const text = tpl.content.textContent ?? "";
@@ -441,15 +509,6 @@ function convertBlocks(editor: AnyEditor, blocks: Blocks): string {
   }
   const md = restoreBreaks(serializeNodes(nodes, ctx) + "\n");
   return ctx.tokens.size === 0 ? md : md.replace(new RegExp(`${TOKEN_OPEN}\\d+${TOKEN_CLOSE}`, "g"), t => ctx.tokens.get(t) ?? t);
-}
-
-/** Private-use characters from the top down, away from the bottom-up ones `uniquePlaceholder` takes; null when all are in use. */
-function freeMarkerChar(haystack: string): string | null {
-  for (let cp = 0xf8ff; cp >= 0xe000; cp -= 1) {
-    const c = String.fromCharCode(cp);
-    if (!haystack.includes(c)) return c;
-  }
-  return null;
 }
 
 export interface NoteMarkdownOptions {

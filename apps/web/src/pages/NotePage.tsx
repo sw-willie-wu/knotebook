@@ -4,12 +4,13 @@ import { NavigationType, useLocation, useNavigate, useNavigationType, useParams 
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { canEditNoteTags, canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
-import { GROUPS_QUERY_KEY } from "@/api/groups";
+import { GROUPS_QUERY_KEY, useGroups } from "@/api/groups";
 import { invalidateNoteQueries, patchNotesListLastEdited, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import type { HashTagBatchInput } from "@/collab/hash-tag-input";
 import { canEdit, isTerminal, stopsReconnect, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
+import { createPrecheckCtxProvider } from "@/uploads/precheck";
 import {
   canonicalizedFrom,
   useHistoryLocation,
@@ -355,7 +356,6 @@ export default function NotePage() {
   // already-oversized note gets a non-blocking notice (computed once after sync, then throttled).
   const authConfigData = useAuthConfig().data;
   const noteMaxBytes = authConfigData?.noteMaxBytes;
-  const maxUploadBytes = authConfigData?.maxUploadBytes;
   const overLimit = useNoteOverLimit(doc, noteMaxBytes, noteId !== undefined && syncedFor === noteId);
 
   // Held in a ref: functions can't go into setState; the avatar row reads it only on click.
@@ -642,6 +642,16 @@ export default function NotePage() {
   // WeakRef: a strong reference to a destroyed provider would retain the previous Y.Doc; a collected ref reads undefined and counts as a new connection.
   const previousRoleRef = useRef<{ provider: WeakRef<NonNullable<typeof provider>>; role: Role } | null>(null);
   const noteGroupId = note?.groupId ?? null;
+  // Usage numbers ("this space has … left") only for the people who see them elsewhere: the owner of a personal note and a
+  // group's managers, though any member may read the group's usage.
+  const groups = useGroups().data;
+  const canViewUsage =
+    note !== undefined &&
+    (noteGroupId === null ? note.ownerId === user?.id : groups?.find((g) => g.id === noteGroupId)?.canManageGroup === true);
+  const precheckCtx = useMemo(
+    () => createPrecheckCtxProvider(queryClient, { groupId: noteGroupId, canViewUsage }),
+    [queryClient, noteGroupId, canViewUsage],
+  );
   useEffect(() => {
     if (state.phase !== "connected" || !provider) return;
     const previous = previousRoleRef.current?.provider.deref() === provider ? previousRoleRef.current.role : null;
@@ -776,7 +786,7 @@ export default function NotePage() {
               onCursorScroller={handleCursorScroller}
               notePath={canonicalNotePath(note)}
               noteMaxBytes={noteMaxBytes}
-              maxUploadBytes={maxUploadBytes}
+              precheckCtx={precheckCtx}
               // When focus isn't in the editor, page-level Ctrl+Z also undoes this note (#430); not while presenting.
               pageUndoShortcut={!presenting}
               headerSlot={

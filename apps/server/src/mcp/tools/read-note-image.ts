@@ -1,4 +1,4 @@
-/** Outside the collab gate and registered for every credential (reads only DB and disk); the description depends on `authKind` because a session has no `create_transfer_token`. "No such upload", "can't read its note" and "file missing" share one sentence within MCP so existence isn't leaked (REST's 403/404 split is a pre-existing tradeoff). */
+/** Outside the collab gate and registered for every credential (reads only DB and disk); the description depends on `authKind` because a session has no `create_transfer_token`. "No such upload", "not a readable image", "can't read its note" and "file missing" share one sentence within MCP so existence and file type aren't leaked (REST's 403/404 split is a pre-existing tradeoff). */
 import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -38,7 +38,7 @@ export const readNoteImageOutput = {
   bytes: z.number(),
 };
 
-const NOT_READABLE_MESSAGE = "No readable image with that id. It may not exist, or it may belong to a note you can't read.";
+const NOT_READABLE_MESSAGE = "No readable image with that id. It may not exist, may not be a PNG, JPEG, GIF, WebP or SVG image, or may belong to a note you can't read.";
 
 /** `noteId` is the note the upload belongs to, not the requested one: a download transfer token is bound to it. */
 function tooLarge(ctx: McpToolCtx, bytes: number, noteId: string, isSvg: boolean): CallToolResult {
@@ -64,6 +64,8 @@ export async function readNoteImage(args: { note_id: string; upload_id: string }
   if (row.noteId !== noteId && (await resolveRole(ctx.db, ctx.userId, row.noteId)) === "none") {
     return toolError("not_found", NOT_READABLE_MESSAGE);
   }
+  // Same answer as a missing upload, so the reply doesn't tell what kind of file an id is; the output schema lists only these five.
+  if (!(readNoteImageOutput.mimeType.options as readonly string[]).includes(row.mime)) return toolError("not_found", NOT_READABLE_MESSAGE);
   const isSvg = row.mime === "image/svg+xml";
   const maxBytes = isSvg ? MCP_SVG_TEXT_MAX_BYTES : MCP_IMAGE_MAX_BYTES;
   if (row.size > maxBytes) return tooLarge(ctx, row.size, row.noteId, isSvg);

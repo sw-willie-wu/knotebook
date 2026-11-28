@@ -218,7 +218,6 @@
     "lastEditedDeletedUser": "a deleted account",
     "transferDataUrl": "Pasting embedded images isn't supported. Try dragging the image file instead.",
     "transferSaveFirst": "This item can't be inserted directly here. Save it as a file first, then drag it in.",
-    "transferNonImage": "Only image files can be inserted here.",
     "wikilinkBroken": "This linked note no longer exists.",
     "outline": {
       "label": "Heading outline",
@@ -294,8 +293,7 @@
     "filePanel": {
       "upload": {
         "tabLabel": "Upload",
-        "inputLabel": "Choose an image file to upload",
-        "error": "Couldn't upload the file. Please try again."
+        "inputLabel": "Choose an image file to upload"
       },
       "embed": {
         "tabLabel": "Embed link",
@@ -423,6 +421,13 @@
   "notificationBell": {
     "label": "Notifications",
     "unread": "Notifications, {{count}} unread"
+  },
+  "uploadIndicator": {
+    "active_one": "{{count}} upload in progress, {{percent}}%",
+    "active_other": "{{count}} uploads in progress, {{percent}}%",
+    "attention_one": "{{count}} upload needs attention",
+    "attention_other": "{{count}} uploads need attention",
+    "both": "{{active}}; {{attention}}"
   },
   "userMenu": {
     "language": "Language",
@@ -860,6 +865,11 @@
     "public_slug_taken": "That public URL is already used by another of your notes.",
     "not_loaded": "This note isn't ready for that yet. Please try again.",
     "file_too_large": "That file is too large to upload.",
+    "upload_interrupted": "The upload was interrupted. Check your connection and try again.",
+    "upload_write_rejected": "The file was uploaded, but you can no longer edit this note.",
+    "upload_write_outdated": "The file was uploaded, but this page is out of date. Reload the page, then add the file again.",
+    "upload_write_deleted": "The file was uploaded, but the note was deleted.",
+    "upload_session_unconfirmed": "Couldn't confirm you're signed in. Try again.",
     "ai_not_configured": "AI is not configured yet",
     "provider_unavailable": "AI provider is unavailable — ask an admin to re-enter the API key",
     "upstream_error": "The AI provider returned an error",

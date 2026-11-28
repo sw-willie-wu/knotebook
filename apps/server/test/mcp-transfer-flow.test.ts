@@ -10,6 +10,7 @@ import { seedTokenForUser } from "./editing-helpers.js";
 import { waitForBlockedOrSettled } from "./group-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import { MULTIPART, PNG_BYTES, fileBody, issueDirect, ownerWithPat } from "./transfer-helpers.js";
+import * as fx from "./helpers/upload-fixtures.js";
 
 type Payload = { token: string; url: string; curl: string; method: string; noteId: string };
 const callTool = (app: Parameters<typeof mcpPost>[0], token: string, name: string, args: Record<string, unknown>) =>
@@ -111,7 +112,7 @@ describe("end to end (collab app): the curl the tool returns works, and its url 
     const { token: pat } = await seedTokenForUser(ctx.db, owner.id);
     const p = (await callTool(ctx.app, pat, "create_transfer_token", { note_id: note.id, purpose: "upload" })).structuredContent as Payload;
     // Derived from the curl string, not other payload fields, so this proves the curl itself works.
-    const m = /^curl -sS -X (POST) -H "Authorization: Bearer (knbt_[A-Za-z0-9_-]{43})" -F "file=@<path-to-image>" "([^"]+)"$/.exec(p.curl);
+    const m = /^curl -sS -X (POST) -H "Authorization: Bearer (knbt_[A-Za-z0-9_-]{43})" -F "file=@<path-to-file>" "([^"]+)"$/.exec(p.curl);
     expect(m).not.toBeNull();
     const [, method, bearerToken, url] = m!;
     // The curl url equals the payload `url`, and its origin comes from PUBLIC_URL (collab app uses `testConfig`); inject only takes
@@ -132,6 +133,59 @@ describe("end to end (collab app): the curl the tool returns works, and its url 
     const read = await callTool(ctx.app, pat, "read_note_section", { note_id: note.id, section_id: "_top" });
     expect(read.isError).toBeUndefined();
     expect((read.structuredContent.section as { markdown: string }).markdown).toContain(`![shot](${rel})`);
+  });
+
+  it("a PDF sent with the returned curl is stored as a file: the reply is {id, url, mime, kind: file}", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `t2-${randomUUID()}@example.com`, password: "correct-horse-battery" });
+    const note = await ctx.createNote(owner.id, "Files");
+    const { token: pat } = await seedTokenForUser(ctx.db, owner.id);
+    const p = (await callTool(ctx.app, pat, "create_transfer_token", { note_id: note.id, purpose: "upload" })).structuredContent as Payload;
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: new URL(p.url).pathname,
+      headers: { "content-type": MULTIPART, authorization: `Bearer ${p.token}` },
+      payload: fileBody(Buffer.from(fx.pdf()), { filename: "report.pdf", contentType: "application/pdf" }),
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as { id: string; url: string; mime: string; kind: string };
+    expect(body).toEqual({ id: expect.stringMatching(/^[0-9a-f-]{36}$/), url: `/api/uploads/${body.id}`, mime: "application/pdf", kind: "file" });
+  });
+
+  it("an upload written with the form UPLOAD_NEXT names for its kind reads back as that same canonical form", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `t3-${randomUUID()}@example.com`, password: "correct-horse-battery" });
+    const note = await ctx.createNote(owner.id, "Media");
+    const { token: pat } = await seedTokenForUser(ctx.db, owner.id);
+    const upload = async (file: Uint8Array, filename: string, contentType: string) => {
+      const p = (await callTool(ctx.app, pat, "create_transfer_token", { note_id: note.id, purpose: "upload" })).structuredContent as Payload;
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: new URL(p.url).pathname,
+        headers: { "content-type": MULTIPART, authorization: `Bearer ${p.token}` },
+        payload: fileBody(Buffer.from(file), { filename, contentType }),
+      });
+      expect(res.statusCode).toBe(201);
+      return res.json() as { url: string; kind: string };
+    };
+    const video = await upload(fx.mp4(), "clip.mp4", "video/mp4");
+    const audio = await upload(fx.mp3(), "song.mp3", "audio/mpeg");
+    const file = await upload(fx.pdf(), "report.pdf", "application/pdf");
+    expect([video.kind, audio.kind, file.kind]).toEqual(["video", "audio", "file"]);
+    const markdown = [
+      `<video src="${video.url}" data-name="clip.mp4"></video>`,
+      `<audio src="${audio.url}" data-name="song.mp3"></audio>`,
+      `<embed src="${file.url}" data-name="report.pdf">`,
+    ].join("\n\n");
+    const edit = await callTool(ctx.app, pat, "edit_note", { note_id: note.id, op: "append", markdown });
+    expect(edit.isError).toBeUndefined();
+    const read = await callTool(ctx.app, pat, "read_note_section", { note_id: note.id, section_id: "_top" });
+    expect(read.isError).toBeUndefined();
+    const out = (read.structuredContent.section as { markdown: string }).markdown;
+    expect(out).toContain(`<video src="${video.url}" data-name="clip.mp4"></video>`);
+    expect(out).toContain(`<audio src="${audio.url}" data-name="song.mp3"></audio>`);
+    expect(out).toContain(`<embed src="${file.url}" data-name="report.pdf">`);
+    expect(out).not.toContain("](/api/uploads/");
   });
 
   it("create_transfer_token not_found is byte-identical to read_note_outline not_found", async () => {

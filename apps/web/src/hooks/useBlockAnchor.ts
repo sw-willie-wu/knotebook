@@ -245,7 +245,7 @@ export function memberAnchorReady(s: { syncedFor: string | null; noteId: string 
 
 export interface MemberBlockAnchorOptions {
   noteId: string | undefined;
-  /** `synced` is deliberately unused; tests swap it in to prove `syncedFor` matters. */
+  /** `synced` is deliberately unused (see the "waits for syncedFor to name this note" test). */
   collab: { synced: boolean; syncedFor: string | null };
   root: HTMLElement | null;
   presenting: boolean;

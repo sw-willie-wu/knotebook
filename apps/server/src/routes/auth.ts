@@ -64,6 +64,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         autoVersionsEnabled: versionsRow?.v ?? true,
         noteMaxBytes: deps.siteLimits.get("noteMaxBytes"),
         maxUploadBytes: deps.siteLimits.get("uploadMaxBytes"),
+        maxMediaUploadBytes: deps.siteLimits.get("uploadMediaMaxMib") * 1_048_576,
       };
     });
 

@@ -31,14 +31,99 @@
     {
       "id": "G0-media",
       "roundTrip": "text",
-      "note": "file 與隱藏預覽的圖片讀成連結、寫回成「段落＋連結」，再讀字面相同、結構不同（現行行為）。",
+      "note": "隱藏預覽的圖片讀成連結、寫回成「段落＋連結」，再讀字面相同、結構不同（現行行為）。",
       "blocks": [
         { "id": "g0m-img", "type": "image", "props": { "name": "pic", "url": "/api/uploads/u0" } },
         { "id": "g0m-img2", "type": "image", "props": { "name": "pic2", "caption": "cap", "url": "/api/uploads/u0" } },
-        { "id": "g0m-file", "type": "file", "props": { "name": "doc.pdf", "url": "/api/uploads/f0" } },
         { "id": "g0m-hidden", "type": "image", "props": { "name": "hidden", "url": "/api/uploads/u0", "showPreview": false } }
       ],
-      "markdown": "![pic](/api/uploads/u0)\n\n<figure><img alt=\"pic2\" src=\"/api/uploads/u0\"><figcaption>cap</figcaption></figure>\n\n[doc.pdf](/api/uploads/f0)\n\n[hidden](/api/uploads/u0)\n"
+      "markdown": "![pic](/api/uploads/u0)\n\n<figure><img alt=\"pic2\" src=\"/api/uploads/u0\"><figcaption>cap</figcaption></figure>\n\n[hidden](/api/uploads/u0)\n"
+    },
+    {
+      "id": "G5-media",
+      "roundTrip": "exact",
+      "blocks": [
+        {"id": "g5-a", "type": "audio", "props": {"name": "a.mp3", "url": "/api/uploads/00000000-0000-4000-8000-000000000001"}},
+        {"id": "g5-v", "type": "video", "props": {"name": "v.mp4", "caption": "cap", "url": "/api/uploads/00000000-0000-4000-8000-000000000002", "previewWidth": 320}},
+        {"id": "g5-vh", "type": "video", "props": {"name": "h.mp4", "url": "/api/uploads/00000000-0000-4000-8000-000000000003", "showPreview": false}},
+        {"id": "g5-f", "type": "file", "props": {"name": "doc.pdf", "url": "/api/uploads/00000000-0000-4000-8000-000000000004"}},
+        {"id": "g5-fc", "type": "file", "props": {"name": "doc2.pdf", "caption": "c", "url": "/api/uploads/00000000-0000-4000-8000-000000000005"}},
+        {"id": "g5-ah", "type": "audio", "props": {"name": "h.mp3", "caption": "ac", "url": "/api/uploads/00000000-0000-4000-8000-000000000006", "showPreview": false}}
+      ],
+      "markdown": "<audio src=\"/api/uploads/00000000-0000-4000-8000-000000000001\" data-name=\"a.mp3\"></audio>\n\n<figure><video src=\"/api/uploads/00000000-0000-4000-8000-000000000002\" data-name=\"v.mp4\" width=\"320\"></video><figcaption>cap</figcaption></figure>\n\n<video src=\"/api/uploads/00000000-0000-4000-8000-000000000003\" data-name=\"h.mp4\" data-show-preview=\"false\"></video>\n\n<embed src=\"/api/uploads/00000000-0000-4000-8000-000000000004\" data-name=\"doc.pdf\">\n\n<figure><embed src=\"/api/uploads/00000000-0000-4000-8000-000000000005\" data-name=\"doc2.pdf\"><figcaption>c</figcaption></figure>\n\n<figure><audio src=\"/api/uploads/00000000-0000-4000-8000-000000000006\" data-name=\"h.mp3\" data-show-preview=\"false\"></audio><figcaption>ac</figcaption></figure>\n"
+    },
+    {
+      "id": "G5-media-noname",
+      "roundTrip": "exact",
+      "blocks": [
+        {"id": "g5n-f", "type": "file", "props": {"url": "/api/uploads/00000000-0000-4000-8000-000000000001"}}
+      ],
+      "markdown": "<embed src=\"/api/uploads/00000000-0000-4000-8000-000000000001\">\n"
+    },
+    {
+      "id": "G5-media-escape",
+      "roundTrip": "exact",
+      "blocks": [
+        {"id": "g5e-v", "type": "video", "props": {"name": "a \"b\" & <c>", "caption": "x & \"y\"", "url": "/api/uploads/u5?a=1&b=2", "previewWidth": 300}}
+      ],
+      "markdown": "<figure><video src=\"/api/uploads/u5?a=1&amp;b=2\" data-name=\"a &quot;b&quot; &amp; <c>\" width=\"300\"></video><figcaption>x &amp; \"y\"</figcaption></figure>\n"
+    },
+    {
+      "id": "G5-media-clamp",
+      "roundTrip": "text",
+      "note": "video previewWidth outside 32..4000 is clamped on read; the written-back block carries the clamped value.",
+      "blocks": [
+        {"id": "g5c-a", "type": "video", "props": {"name": "a", "url": "/api/uploads/00000000-0000-4000-8000-000000000001", "previewWidth": 20}},
+        {"id": "g5c-b", "type": "video", "props": {"name": "b", "url": "/api/uploads/00000000-0000-4000-8000-000000000001", "previewWidth": 5000}}
+      ],
+      "markdown": "<video src=\"/api/uploads/00000000-0000-4000-8000-000000000001\" data-name=\"a\" width=\"32\"></video>\n\n<video src=\"/api/uploads/00000000-0000-4000-8000-000000000001\" data-name=\"b\" width=\"4000\"></video>\n"
+    },
+    {
+      "id": "G5-media-unsafe",
+      "roundTrip": "text",
+      "note": "A URL the media guard blocks reads as about:blank; written back it stays about:blank.",
+      "blocks": [
+        {"id": "g5u-v", "type": "video", "props": {"name": "v", "url": "javascript:alert(1)"}}
+      ],
+      "markdown": "<video src=\"about:blank\" data-name=\"v\"></video>\n"
+    },
+    {
+      "id": "G5-media-in-list",
+      "roundTrip": "text",
+      "note": "Media under a list item reads flattened, like every non-list block under one; written back they are siblings.",
+      "blocks": [
+        {"id": "g5l-1", "type": "bulletListItem", "content": "item", "children": [{"id": "g5l-2", "type": "video", "props": {"name": "v", "url": "/api/uploads/00000000-0000-4000-8000-000000000002", "previewWidth": 100}}, {"id": "g5l-3", "type": "file", "props": {"name": "f", "url": "/api/uploads/00000000-0000-4000-8000-000000000003"}}]},
+        {"id": "g5l-4", "type": "bulletListItem", "content": "next"}
+      ],
+      "markdown": "* item\n\n<video src=\"/api/uploads/00000000-0000-4000-8000-000000000002\" data-name=\"v\" width=\"100\"></video>\n\n<embed src=\"/api/uploads/00000000-0000-4000-8000-000000000003\" data-name=\"f\">\n\n* next\n"
+    },
+    {
+      "id": "G5-media-in-toggle-heading",
+      "roundTrip": "exact",
+      "note": "core makes upload URLs inside <details> absolute while parsing; relativizeSiteUploads restores them.",
+      "blocks": [
+        {"id": "g5t-h", "type": "heading", "props": {"level": 2, "isToggleable": true}, "content": "h", "children": [{"id": "g5t-f", "type": "file", "props": {"name": "f", "url": "/api/uploads/00000000-0000-4000-8000-000000000003"}}]}
+      ],
+      "markdown": "<details open=\"\" data-is-toggleable=\"true\"><summary><h2>h</h2></summary><embed src=\"/api/uploads/00000000-0000-4000-8000-000000000003\" data-name=\"f\"></details>\n"
+    },
+    {
+      "id": "G5-media-in-column",
+      "roundTrip": "text",
+      "note": "Media inside columns goes out as the same element; written back, the column content parses to the same blocks.",
+      "blocks": [
+        {"id": "g5k-0", "type": "columnList", "children": [{"id": "g5k-1", "type": "column", "props": {"width": 1}, "children": [{"id": "g5k-2", "type": "video", "props": {"name": "v", "url": "/api/uploads/00000000-0000-4000-8000-000000000001", "previewWidth": 200}}, {"id": "g5k-3", "type": "paragraph", "content": "after"}]}, {"id": "g5k-4", "type": "column", "props": {"width": 1}, "children": [{"id": "g5k-5", "type": "file", "props": {"name": "f", "url": "/api/uploads/00000000-0000-4000-8000-000000000001"}}]}]}
+      ],
+      "markdown": "<div data-kb-columns style=\"display:flex;gap:16px\">\n<div data-kb-column style=\"flex:1\">\n\n<video src=\"/api/uploads/00000000-0000-4000-8000-000000000001\" data-name=\"v\" width=\"200\"></video>\n\nafter\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\n<embed src=\"/api/uploads/00000000-0000-4000-8000-000000000001\" data-name=\"f\">\n\n</div>\n</div>\n"
+    },
+    {
+      "id": "G5-media-no-url",
+      "roundTrip": "text",
+      "note": "A media block with no URL reads as nothing, as before.",
+      "blocks": [
+        {"id": "g5z-1", "type": "file", "props": {"name": "x"}},
+        {"id": "g5z-2", "type": "paragraph", "content": "after"}
+      ],
+      "markdown": "after\n"
     },
     {
       "id": "G0-colors",

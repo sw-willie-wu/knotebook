@@ -270,7 +270,7 @@ Text and background colors travel as HTML inside the Markdown: a colored stretch
 
 Reading gives colors back in the same forms; a hex color reads back as lowercase `#rrggbb`, whatever form it was written in. Content with no color in it reads back as Markdown, exactly as before. Colored text reads back as a `<span>` in the Markdown, with the span outside any bold, italics or link around that text (`<span style="color:red">**late**</span>`). A paragraph, heading, list item or quote with a color of its own reads back as one block of HTML — the whole list, nested items included, when any of its items has one — and so does a whole table when any of its cells has one, with `colwidth` only on its first row when it also has column widths. An image with a background color reads back as HTML with `data-background-color` on it; when its width has been set, that is the `<figure>` form under [Sizes](#sizes), with the color on the `<figure>`. Writing back what you read keeps the colors: sending a section back unchanged with `replace_section` and reading it again gives the same text. That holds for the colors; text that merely looks like Markdown or HTML is another matter — see [Known limitations](./known-limitations.md). Three kinds of color are not carried:
 
-- **A file attachment's background color.** A file attachment reads back as a link, as before, and the color is not in it.
+- **A file attachment's background color.** A file attachment reads back as an `<embed>` ([Audio, video and files](#audio-video-and-files)), and the color is not in it.
 - **A color value that isn't one of the ten names or a lowercase `#rrggbb` color**, such as one stored before Knotebook checked colors or left by pasting from elsewhere. The editor doesn't show it either; it reads back as no color, so writing that block back removes it.
 - **The color of a block with no text in it**, such as an empty paragraph given a background. Written back, an empty colored block would be dropped, so it reads back as it did before colors were read at all.
 
@@ -349,6 +349,26 @@ These are refused with `400 unsupported_size` (over MCP, the tool error `unsuppo
 - a width or `colwidth` that breaks the rules above.
 
 **Markdown read from an earlier version.** A note with a resized image or with table column widths now reads differently: the image as the `<figure>` above, with its `width`, and a table with column widths but no cell color as HTML instead of a pipe table. Two forms that were already HTML are now stricter, too: a colored table with column widths had `colwidth` on every row, and a colored image with a set width had more attributes than the `<figure>` form above allows. Sending such older text back unchanged is refused with `unsupported_size`. A row of side-by-side columns read as its columns' blocks one after another, without the column tags, or as one block of HTML when a block in it had a color (see [Columns](#columns)); sending the first form back turns the row into ordinary blocks, and the second is refused with `unsupported_columns`. A note with no columns, no set image width and no table column widths reads as before, except that a stored column width that isn't a positive number — `NaN` in a colored table with merged cells, for example — now reads as an empty value.
+
+### Audio, video and files
+
+Audio, video and file blocks read as HTML, one block each, so that they come back as the same block when written:
+
+| What | Reads, and is written, as |
+|---|---|
+| Audio | `<audio src="URL" data-name="NAME"></audio>` |
+| Video | `<video src="URL" data-name="NAME" width="W"></video>`, with `width` only when a width is set |
+| A file | `<embed src="URL" data-name="NAME">` |
+| Any of them with a caption | the same element in `<figure>…<figcaption>CAPTION</figcaption></figure>` |
+| Audio or video whose preview is turned off | `data-show-preview="false"` after `data-name` |
+
+- **`URL` is the block's address**: the relative `/api/uploads/<id>` for an upload, or the external address of a block filled from the Embed tab. `data-name` is left out when the block has no name.
+- **`W` follows the rule for image widths** under [Sizes](#sizes): a whole number of pixels from 32 to 4000. A stored width outside that range reads back brought into it, and a written one outside it is refused with `400 unsupported_size`.
+- **A block with no URL** reads as it did before: nothing. That includes one whose upload is still running, so writing its section back removes it.
+- **A background color on one of these blocks isn't kept** in the Markdown, and neither is a video's text alignment.
+- **A plain link, `[NAME](/api/uploads/<id>)`, stays a link** in a paragraph. Only the HTML above makes a block.
+- **An event-handler attribute** such as `onload` on any of these elements is refused with `400 unsupported_block`, as everywhere else.
+- **Markdown read from an earlier version** showed these blocks as a link or a bare `<audio>` / `<video>`. Reading the same note now gives the HTML above. Fingerprints come from the blocks, not the text, so they don't change: text read before the upgrade and written back with its fingerprint is accepted, and turns those blocks into links as before (an audio or video block loses its name). Read the note again before editing one with audio, video or file blocks.
 
 ## Presence
 

@@ -576,7 +576,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         case "edit_rate_limited":
           return sendError(reply, 429, "too_many_requests", "Too many writes. Wait a moment and try again.");
         case "space_full":
-          return sendStorageQuotaExceeded(reply, await precheckDetail(deps.db, request.user!, out.space, out.usage));
+          return sendStorageQuotaExceeded(reply, { ...(await precheckDetail(deps.db, request.user!, out.space, out.usage)), incomingBytes: out.incomingBytes });
         case "upload_rate_limited":
           return sendError(reply, 429, "too_many_requests", "Too many requests. Wait a moment and try again.");
         case "aborted":

@@ -45,6 +45,9 @@ const DOCUMENT_MIMES = new Set([
   "application/vnd.ms-excel",
   "application/vnd.ms-powerpoint",
   "application/rtf",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.presentation",
 ]);
 
 /** The only classification rule: the server groups by uploads.mime and classifies here, not in SQL. */

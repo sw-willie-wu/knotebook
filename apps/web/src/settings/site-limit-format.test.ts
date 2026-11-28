@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { SiteLimitItemDto, SiteLimitsDto } from "@knotebook/shared";
-import { effectiveWorkers, estimateParseMemoryMb, formatApiValue, fromInput, toInput } from "./site-limit-format";
+import { effectiveWorkers, estimateParseMemoryMb, formatApiValue, formatMib, fromInput, toInput } from "./site-limit-format";
 
 const GiB = 1024 ** 3;
 const MACHINE: SiteLimitsDto["machine"] = { cpus: 8, cpuSource: "os", memoryBytes: 2 * GiB, memorySource: "os" };
+
+describe("formatMib", () => {
+  it("whole GiB read as GiB, everything else stays in MiB", () => {
+    expect(formatMib(100)).toBe("100 MiB");
+    expect(formatMib(1024)).toBe("1 GiB");
+    expect(formatMib(2048)).toBe("2 GiB");
+    expect(formatMib(1536)).toBe("1536 MiB");
+    expect(formatMib(10)).toBe("10 MiB");
+  });
+});
 
 describe("toInput: API unit -> input unit", () => {
   it("when aligned converts to the input unit; when not aligned returns null (shown as-is in API units)", () => {

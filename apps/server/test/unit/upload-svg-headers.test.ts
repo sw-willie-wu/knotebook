@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setUploadResponseHeaders, UPLOAD_CSP } from "../../src/uploads/service.js";
+import { UPLOAD_CSP, uploadResponseHeaders } from "../../src/uploads/service.js";
 import { toolResultWithText } from "../../src/mcp/tool-result.js";
 import {
   READ_NOTE_IMAGE_DESCRIPTION_SESSION,
@@ -9,27 +9,14 @@ import {
 import { UPLOAD_NEXT } from "../../src/mcp/tools/create-transfer-token.js";
 
 describe("upload response headers (#389)", () => {
-  it("sets nosniff, CSP sandbox (allowing inline styles for SVG CSS animations), immutable cache-control and the stored MIME type", () => {
-    const headers = new Map<string, string>();
-    let mime = "";
-    const reply = {
-      header(name: string, value: string) {
-        headers.set(name, value);
-        return this;
-      },
-      type(value: string) {
-        mime = value;
-        return this;
-      },
-    };
-
-    setUploadResponseHeaders(reply, "image/svg+xml");
-
+  it("serves an SVG inline under the sandbox CSP that allows inline styles and data: images and fonts, with nosniff and immutable cache-control", () => {
     expect(UPLOAD_CSP).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
-    expect(headers.get("x-content-type-options")).toBe("nosniff");
-    expect(headers.get("content-security-policy")).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
-    expect(headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
-    expect(mime).toBe("image/svg+xml");
+    expect(uploadResponseHeaders("image/svg+xml", "drawing.svg")).toEqual({
+      "x-content-type-options": "nosniff",
+      "cache-control": "private, max-age=31536000, immutable",
+      "content-type": "image/svg+xml",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox",
+    });
   });
 });
 
@@ -50,6 +37,6 @@ describe("MCP SVG output helpers and schemas (#389)", () => {
     expect(readNoteImageOutput.mimeType.safeParse("image/svg+xml").success).toBe(true);
     expect(READ_NOTE_IMAGE_DESCRIPTION_TOKEN).toContain("SVGs up to 102400 bytes as UTF-8 XML text");
     expect(READ_NOTE_IMAGE_DESCRIPTION_SESSION).toContain("SVGs up to 102400 bytes as UTF-8 XML text");
-    expect(UPLOAD_NEXT).toContain("415: not a PNG, JPEG, GIF, WebP or SVG image");
+    expect(UPLOAD_NEXT).toContain("415: not a supported type — an image (PNG, JPEG, GIF, WebP or SVG)");
   });
 });

@@ -77,7 +77,7 @@ describe("SettingsLimitsSection (site limits tab)", () => {
     expect(screen.queryByText("Bulk transfer")).not.toBeInTheDocument();
     expect(screen.queryByText("Web sign-in lasts")).not.toBeInTheDocument();
     expect(screen.queryByText("Active API tokens per person")).not.toBeInTheDocument();
-    expect(block("Uploads and notes").getAllByRole("group").map((g) => g.getAttribute("data-limit-key"))).toEqual(["uploadMaxBytes", "noteMaxBytes"]);
+    expect(block("Uploads and notes").getAllByRole("group").map((g) => g.getAttribute("data-limit-key"))).toEqual(["uploadMaxBytes", "uploadMediaMaxMib", "noteMaxBytes"]);
     expect(block("Parse workers").getAllByRole("group").map((g) => g.getAttribute("data-limit-key"))).toEqual([
       "parseWorkers",
       "parseWorkerMemoryMb",
@@ -96,6 +96,52 @@ describe("SettingsLimitsSection (site limits tab)", () => {
     expect(row("API and MCP reads").getByText("Default 300 times · Range 30–300 times · per minute")).toBeInTheDocument();
     expect(row("API and MCP writes").getByText("Default 60 times · Range 6–60 times · per 10 minutes")).toBeInTheDocument();
     expect(row("Bulk downloads").getByText("Default 10 times · Range 1–10 times · per hour")).toBeInTheDocument();
+  });
+
+  describe("audio and video limit row", () => {
+    const RISK = [
+      /Disk use: every file is stored in full/,
+      /reverse proxy .* may cap the request body size and the time/,
+      /the upload has to start again from the beginning/,
+      /temporary disk space/,
+    ];
+
+    it("shows the default size and the recommended range, never the registry maximum, and no risks at or below 1 GiB", async () => {
+      setup({ data: dto() });
+      await loaded();
+      const r = row("Audio and video size limit");
+      expect(r.getByText("That is 100 MiB")).toBeInTheDocument();
+      expect(r.getByText("Default 100 MiB · Recommended 100 MiB–1 GiB")).toBeInTheDocument();
+      for (const risk of RISK) expect(r.queryByText(risk)).not.toBeInTheDocument();
+      const text = screen.getByRole("group", { name: "Audio and video size limit" }).textContent ?? "";
+      expect(text).not.toMatch(/1[ ,]?048[ ,]?576|TiB/);
+    });
+
+    it("2048 shows as 2 GiB with the four risks; exactly 1 GiB still shows none", async () => {
+      setup({ data: dto({ uploadMediaMaxMib: { value: 2048, source: "admin", stored: 2048 } }) });
+      await loaded();
+      const r = row("Audio and video size limit");
+      expect(r.getByText("That is 2 GiB")).toBeInTheDocument();
+      for (const risk of RISK) expect(r.getByText(risk)).toBeInTheDocument();
+      fireEvent.change(field("Audio and video size limit"), { target: { value: "1024" } });
+      expect(r.getByText("That is 1 GiB")).toBeInTheDocument();
+      for (const risk of RISK) expect(r.queryByText(risk)).not.toBeInTheDocument();
+      fireEvent.change(field("Audio and video size limit"), { target: { value: "1025" } });
+      for (const risk of RISK) expect(r.getByText(risk)).toBeInTheDocument();
+    });
+
+    it.each([
+      ["9", "Enter a whole number of at least 10 MiB."],
+      ["1048577", "That is more than this setting can hold."],
+    ])("draft %s is refused with its own message and never prints the registry maximum", async (draft, message) => {
+      setup({ data: dto() });
+      await loaded();
+      fireEvent.change(field("Audio and video size limit"), { target: { value: draft } });
+      fireEvent.click(block("Uploads and notes").getByRole("button", { name: "Save" }));
+      const alert = await within(screen.getByRole("group", { name: "Audio and video size limit" })).findByRole("alert");
+      expect(alert).toHaveTextContent(message);
+      expect(alert.textContent).not.toMatch(/TiB|1[ ,]?048[ ,]?576/);
+    });
   });
 
   it("Chinese: the default / range text and the \"every N minutes\" wording", async () => {

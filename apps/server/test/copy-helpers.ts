@@ -23,9 +23,9 @@ export async function seedUpload(
   noteId: string,
   uploaderId: string,
   bytes: Buffer = PNG,
-  opts: { noFile?: boolean; mime?: string } = {},
+  opts: { noFile?: boolean; fileName?: string; mime?: string } = {},
 ): Promise<string> {
-  const [u] = await db.insert(uploads).values({ noteId, uploaderId, mime: opts.mime ?? "image/png", size: bytes.length }).returning({ id: uploads.id });
+  const [u] = await db.insert(uploads).values({ noteId, uploaderId, mime: opts.mime ?? "image/png", size: bytes.length, fileName: opts.fileName ?? null }).returning({ id: uploads.id });
   if (!opts.noFile) await writeFile(uploadFilePath(uploadsDir, u!.id), bytes);
   return u!.id;
 }

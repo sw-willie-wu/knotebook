@@ -78,6 +78,7 @@ describe("main file", () => {
 
 const LABELS: Record<string, [string, string]> = {
   uploadMaxBytes: ["Upload size limit", "上傳檔案大小上限"],
+  uploadMediaMaxMib: ["Audio and video size limit", "音訊與影片大小上限"],
   noteMaxBytes: ["Note size limit", "筆記大小上限"],
   parseWorkers: ["Number of parse workers","解析 worker 數"],
   parseWorkerMemoryMb: ["Memory per worker", "每個 worker 記憶體上限"],
@@ -98,6 +99,7 @@ const LABELS: Record<string, [string, string]> = {
 
 const DESCRIPTION_MARKERS: Record<string, [string, string]> = {
   uploadMaxBytes: ["upload", "檔案"],
+  uploadMediaMaxMib: ["audio", "音訊"],
   noteMaxBytes: ["note's", "單篇"],
   parseWorkers: ["same time", "Markdown"],
   parseWorkerMemoryMb: ["Memory each worker", "記憶體"],
@@ -151,6 +153,24 @@ describe("names and descriptions pinned per entry", () => {
     expect(get(managementZhTW, "admin.limits.consequences.parseQueueWaitMs")).toBe(
       "比「4 × 解析時限＋5 秒」短時，排在一件慢工作後面的請求可能先收到忙碌錯誤。",
     );
+  });
+
+  it("audio and video row copy: every key exists in both languages", () => {
+    for (const bundle of [managementEn, managementZhTW]) {
+      for (const path of [
+        "admin.limits.media.hint",
+        "admin.limits.media.current",
+        "admin.limits.media.tooSmall",
+        "admin.limits.media.tooLarge",
+        "admin.limits.media.riskTitle",
+        "admin.limits.media.risk.disk",
+        "admin.limits.media.risk.proxy",
+        "admin.limits.media.risk.restart",
+        "admin.limits.media.risk.temp",
+      ]) {
+        expect(typeof get(bundle, path), path).toBe("string");
+      }
+    }
   });
 
   it("the separator in the range hint is ' · '", () => {
