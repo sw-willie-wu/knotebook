@@ -763,3 +763,210 @@ describe("file-type blocks accept what the server accepts (block chosen on drop/
     expect(accept("image")).toEqual(["image/*"]);
   });
 });
+
+describe("#590: case-insensitive code block language matching", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror view types can't be imported directly
+  function typeInto(view: any, text: string): void {
+    for (const ch of text) {
+      const { from, to } = view.state.selection;
+      const handled = view.someProp(
+        "handleTextInput",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above
+        (fn: (v: any, a: number, b: number, c: string) => boolean | void) => fn(view, from, to, ch),
+      );
+      if (!handled) view.dispatch(view.state.tr.insertText(ch, from, to));
+    }
+  }
+
+  async function waitForHighlight(container: HTMLElement, blockIndex = 0): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    while (true) {
+      const blocks = container.querySelectorAll<HTMLElement>('[data-content-type="codeBlock"]');
+      if (blocks[blockIndex]?.querySelector(".shiki") !== null && blocks[blockIndex] !== undefined) return;
+      if (Date.now() > deadline) throw new Error(`codeBlock[${blockIndex}] was not highlighted within 10s`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  it("normalizes mixed-case language names and aliases when parsing Markdown and HTML fences", () => {
+    const editor = BlockNoteEditor.create({ schema: noteSchema });
+    const mdCases: ReadonlyArray<readonly [string, string]> = [
+      ["Python", "python"],
+      ["PY", "python"],
+      ["LaTeX", "latex"],
+      ["TypeScript", "typescript"],
+      ["TS", "typescript"],
+      ["JS", "javascript"],
+      ["C++", "cpp"],
+      ["C#", "csharp"],
+      ["Dockerfile", "docker"],
+      ["Plaintext", "text"],
+      ["Mermaid", "mermaid"],
+      ["", "text"],
+      ["Ruby", "Ruby"],
+      ["TeX", "TeX"],
+    ];
+    for (const [fence, expected] of mdCases) {
+      const blocks = editor.tryParseMarkdownToBlocks(`\`\`\`${fence}\ncode\n\`\`\``);
+      expect(blocks[0]!.type, fence).toBe("codeBlock");
+      expect((blocks[0]!.props as { language: string }).language, fence).toBe(expected);
+    }
+
+    const fromHtml = editor.tryParseHTMLToBlocks(
+      '<pre><code class="hljs language-Python">print(1)</code></pre><pre><code data-language="LaTeX">$x$</code></pre><pre><code class="language-TS">const a = 1;</code></pre>',
+    );
+    expect(fromHtml.map((b) => (b.props as { language: string }).language)).toEqual(["python", "latex", "typescript"]);
+  });
+
+  it("normalizes typed ``` fences case-insensitively and sets the language dropdown and highlighting", async () => {
+    const cases: ReadonlyArray<readonly [string, string, string]> = [
+      ["```Python ", "python", "def f():\n  return 1"],
+      ["```LaTeX ", "latex", "Plain $x_1^2$"],
+      ["```PY ", "python", "x = 1"],
+      ["```TS ", "typescript", "const x = 1;"],
+      ["```C++ ", "cpp", "int main() { return 0; }"],
+    ];
+
+    for (const [fence, expectedLang, sample] of cases) {
+      const editor = BlockNoteEditor.create({
+        schema: noteSchema,
+        initialContent: [{ type: "paragraph" }],
+      });
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      try {
+        editor.mount(container);
+        editor.setTextCursorPosition(editor.document[0]!, "start");
+        typeInto(editor.prosemirrorView, fence);
+        expect(editor.document[0]!.type, fence).toBe("codeBlock");
+        expect((editor.document[0]!.props as { language: string }).language, fence).toBe(expectedLang);
+
+        const select = container.querySelector<HTMLSelectElement>('[data-content-type="codeBlock"] select');
+        expect(select?.value, fence).toBe(expectedLang);
+
+        typeInto(editor.prosemirrorView, sample);
+        await waitForHighlight(container);
+        expect(container.querySelectorAll('[data-content-type="codeBlock"] .shiki').length, fence).toBeGreaterThan(0);
+      } finally {
+        editor.unmount();
+        container.remove();
+      }
+    }
+  });
+
+  it("typed bare ``` defaults to text and typed unknown language preserves fallback without crashing", () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [{ type: "paragraph" }, { type: "paragraph" }],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    try {
+      editor.mount(container);
+      editor.setTextCursorPosition(editor.document[0]!, "start");
+      typeInto(editor.prosemirrorView, "``` ");
+      expect((editor.document[0]!.props as { language: string }).language).toBe("text");
+
+      editor.setTextCursorPosition(editor.document[1]!, "start");
+      typeInto(editor.prosemirrorView, "```Ruby ");
+      expect((editor.document[1]!.props as { language: string }).language).toBe("Ruby");
+    } finally {
+      editor.unmount();
+      container.remove();
+    }
+  });
+
+  it("pre-existing blocks with mixed-case or alias language props are highlighted and matched in the dropdown without mutating the document", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [
+        { type: "codeBlock", props: { language: "Python" }, content: "def f():\n  return 1" },
+        { type: "codeBlock", props: { language: "LaTeX" }, content: "Plain $x_1^2$" },
+        { type: "codeBlock", props: { language: "TS" }, content: "const x = 1;" },
+        { type: "codeBlock", props: { language: "Plaintext" }, content: "plain words" },
+        { type: "codeBlock", props: { language: "TeX" }, content: "$x$" },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    try {
+      editor.mount(container);
+      await waitForHighlight(container, 0);
+      await waitForHighlight(container, 1);
+      await waitForHighlight(container, 2);
+
+      const blocks = [...container.querySelectorAll<HTMLElement>('[data-content-type="codeBlock"]')];
+      expect(blocks).toHaveLength(5);
+      expect(blocks[0]!.querySelector("select")!.value).toBe("python");
+      expect(blocks[1]!.querySelector("select")!.value).toBe("latex");
+      expect(blocks[2]!.querySelector("select")!.value).toBe("typescript");
+      expect(blocks[3]!.querySelector("select")!.value).toBe("text");
+      expect(blocks[3]!.querySelectorAll(".shiki")).toHaveLength(0);
+      expect(blocks[4]!.querySelectorAll(".shiki")).toHaveLength(0);
+
+      // Rendering must not mutate stored Yjs/document props on read.
+      expect(editor.document.map((b) => (b.props as { language: string }).language)).toEqual([
+        "Python",
+        "LaTeX",
+        "TS",
+        "Plaintext",
+        "TeX",
+      ]);
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+      editor.unmount();
+      container.remove();
+    }
+  });
+
+  it("changing the language dropdown on a pre-existing mixed-case block writes the selected canonical id", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [{ type: "codeBlock", props: { language: "Python" }, content: "const x = 1;" }],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    try {
+      editor.mount(container);
+      const select = container.querySelector<HTMLSelectElement>('[data-content-type="codeBlock"] select');
+      expect(select?.value).toBe("python");
+
+      select!.value = "typescript";
+      select!.dispatchEvent(new Event("change", { bubbles: true }));
+
+      expect((editor.document[0]!.props as { language: string }).language).toBe("typescript");
+      expect(container.querySelector<HTMLSelectElement>('[data-content-type="codeBlock"] select')?.value).toBe("typescript");
+      await waitForHighlight(container);
+      expect(container.querySelectorAll('[data-content-type="codeBlock"] .shiki').length).toBeGreaterThan(0);
+    } finally {
+      editor.unmount();
+      container.remove();
+    }
+  });
+
+  it("pasteMarkdown stores canonical lowercase language ids for mixed-case fences", () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [{ type: "paragraph" }],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    try {
+      editor.mount(container);
+      editor.setTextCursorPosition(editor.document[0]!, "start");
+      editor.pasteMarkdown("```Python\nprint(1)\n```\n\n```LaTeX\n$x$\n```\n\n```PY\nx = 2\n```");
+      const codeBlocks = editor.document.filter((b) => b.type === "codeBlock");
+      expect(codeBlocks.map((b) => (b.props as { language: string }).language)).toEqual(["python", "latex", "python"]);
+    } finally {
+      editor.unmount();
+      container.remove();
+    }
+  });
+});

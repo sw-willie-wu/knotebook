@@ -1,5 +1,5 @@
-import { BlockNoteSchema, createBlockSpec, createCodeBlockSpec } from "@blocknote/core";
-import { CODE_BLOCK_BASE_OPTIONS, mermaidBlockConfig } from "@knotebook/shared";
+import { BlockNoteSchema, createBlockSpec } from "@blocknote/core";
+import { CODE_BLOCK_BASE_OPTIONS, createKnotebookCodeBlockSpec, mermaidBlockConfig } from "@knotebook/shared";
 import { noteSchema } from "@/collab/schema";
 
 /**
@@ -86,7 +86,7 @@ export const presentationSchema = BlockNoteSchema.create({
     image: withMediaMarker(specs.image),
     video: withMediaMarker(specs.video),
     mermaid: presentationMermaidSpec,
-    codeBlock: withCodeLang(createCodeBlockSpec(CODE_BLOCK_BASE_OPTIONS)),
+    codeBlock: withCodeLang(createKnotebookCodeBlockSpec(CODE_BLOCK_BASE_OPTIONS)),
   },
   inlineContentSpecs: noteSchema.inlineContentSpecs,
   styleSpecs: noteSchema.styleSpecs,

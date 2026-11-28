@@ -2,7 +2,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
-import type { NoteDto, TrashListDto, TrashPurgeResultDto, TrashRestoreResultDto } from "@knotebook/shared";
+import type { NoteDto, TrashListDto, TrashPreviewDto, TrashPurgeResultDto, TrashRestoreResultDto } from "@knotebook/shared";
+import { EMPTY_YDOC_UPDATE_B64 } from "@knotebook/shared";
 import { SITE_SETTINGS_MISSING_MESSAGE } from "../src/auth/tx/admin-site-settings.js";
 import { noopCollabHooks } from "../src/collab/hooks.js";
 import type { Db } from "../src/db/index.js";
@@ -525,9 +526,14 @@ describe.each(MATRIX)("six-role matrix: %s", (role, delStatus, trashRight) => {
 
     const listed = (await listIds(app, u.id)).includes(n);
     const get = await inject(app, "GET", `/api/notes/${n}`, u.id);
+    const preview = await inject(app, "GET", `/api/trash/${n}`, u.id);
     if (trashRight) {
       expect(listed).toBe(true);
       expect([get.statusCode, get.json()]).toEqual([404, inTrash(n)]);
+      expect(preview.statusCode).toBe(200);
+      expect(preview.headers["cache-control"]).toBe("private, no-store");
+      expect((preview.json() as TrashPreviewDto).id).toBe(n);
+      expect((preview.json() as TrashPreviewDto).ydoc).toBe(EMPTY_YDOC_UPDATE_B64);
       const res = (await restore(app, u.id, [n])).json() as TrashRestoreResultDto;
       expect([res.restored.map(x => x.id), res.skipped]).toEqual([[n], []]);
       // The restore response's NoteDto equals the later single-note read field by field (a group note's role/permissions/group come from the caller's role).
@@ -540,6 +546,8 @@ describe.each(MATRIX)("six-role matrix: %s", (role, delStatus, trashRight) => {
       expect(listed).toBe(false);
       const getR = await inject(app, "GET", `/api/notes/${r}`, u.id);
       expect([get.statusCode, get.body]).toEqual([getR.statusCode, getR.body]);
+      const previewR = await inject(app, "GET", `/api/trash/${r}`, u.id);
+      expect([preview.statusCode, preview.body]).toEqual([previewR.statusCode, previewR.body]);
       for (const call of [restore, purge]) {
         const onN = await call(app, u.id, [n]);
         const onR = await call(app, u.id, [r]);
@@ -568,19 +576,46 @@ describe("clear-all semantics", () => {
   });
 });
 
+describe("trash preview uploads", () => {
+  it("owner can fetch the trashed note's own upload via /api/trash/:id/uploads/:uploadId while cross-note uploads, live notes and sharees get 404", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await seedUser(db);
+    const friend = await seedUser(db);
+    const n = await seedNote(db, { ownerId: owner.id });
+    const other = await seedNote(db, { ownerId: owner.id });
+    await seedShare(db, n.id, friend.id, "editor");
+    const up = await seedAttachment(db, uploadsDir, n.id, owner.id, 16);
+    const otherUp = await seedAttachment(db, uploadsDir, other.id, owner.id, 16);
+
+    // Live note -> 404
+    expect((await inject(app, "GET", `/api/trash/${n.id}/uploads/${up}`, owner.id)).statusCode).toBe(404);
+
+    await expect204(del(app, n.id, owner.id));
+    const ok = await inject(app, "GET", `/api/trash/${n.id}/uploads/${up}`, owner.id);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    expect(ok.headers["x-content-type-options"]).toBe("nosniff");
+    expect((await inject(app, "GET", `/api/trash/${n.id}/uploads/${otherUp}`, owner.id)).statusCode).toBe(404);
+    expect((await inject(app, "GET", `/api/trash/${n.id}/uploads/${up}`, friend.id)).statusCode).toBe(404);
+  });
+});
+
 describe("cookie-only", () => {
-  it("the three endpoints called with Bearer (read-write-move) -> 401, trash unchanged", async () => {
-    const { app, db } = await buildTestApp();
+  it("the trash endpoints called with Bearer (read-write-move) -> 401, trash unchanged", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
     const owner = await seedUser(db);
     const n = await seedNote(db, { ownerId: owner.id });
+    const up = await seedAttachment(db, uploadsDir, n.id, owner.id, 8);
     await expect204(del(app, n.id, owner.id));
     const { token: pat } = await seedTokenForUser(db, owner.id, "notes:read notes:write notes:move");
     const calls = [
       app.inject({ method: "GET", url: "/api/trash", headers: bearer(pat) }),
+      app.inject({ method: "GET", url: `/api/trash/${n.id}`, headers: bearer(pat) }),
+      app.inject({ method: "GET", url: `/api/trash/${n.id}/uploads/${up}`, headers: bearer(pat) }),
       app.inject({ method: "POST", url: "/api/trash/restore", headers: bearer(pat), payload: { ids: [n.id] } }),
       app.inject({ method: "POST", url: "/api/trash/purge", headers: bearer(pat), payload: { ids: [n.id] } }),
     ];
-    expect((await Promise.all(calls)).map(r => r.statusCode)).toEqual([401, 401, 401]);
+    expect((await Promise.all(calls)).map(r => r.statusCode)).toEqual([401, 401, 401, 401, 401]);
     expect((await trashCols(db.$client, n.id))?.deleted_at).not.toBeNull();
   });
 });

@@ -69,6 +69,17 @@ describe("findPastedMermaidCodeBlocks", () => {
     expect(findPastedMermaidCodeBlocks(doc, new Set())).toEqual([{ id: "deep", code: "graph TD; A-->B;" }]);
   });
 
+  it("matches mermaid language case-insensitively (#590)", () => {
+    const doc = [
+      codeBlock("a", "Mermaid", "graph TD; A-->B;"),
+      codeBlock("b", "MERMAID", "graph LR; X-->Y;"),
+    ];
+    expect(findPastedMermaidCodeBlocks(doc, new Set())).toEqual([
+      { id: "b", code: "graph LR; X-->Y;" },
+      { id: "a", code: "graph TD; A-->B;" },
+    ]);
+  });
+
   it("keeps the source's line breaks and indentation", () => {
     const source = "graph TD\n  A-->B\n  B-->C";
     expect(findPastedMermaidCodeBlocks([codeBlock("n", "mermaid", source)], new Set())).toEqual([
