@@ -362,13 +362,13 @@ Audio, video and file blocks read as HTML, one block each, so that they come bac
 | Any of them with a caption | the same element in `<figure>…<figcaption>CAPTION</figcaption></figure>` |
 | Audio or video whose preview is turned off | `data-show-preview="false"` after `data-name` |
 
-- **`URL` is the upload's own `/api/uploads/<id>`**, kept relative. `data-name` is left out when the block has no name.
+- **`URL` is the block's address**: the relative `/api/uploads/<id>` for an upload, or the external address of a block filled from the Embed tab. `data-name` is left out when the block has no name.
 - **`W` follows the rule for image widths** under [Sizes](#sizes): a whole number of pixels from 32 to 4000. A stored width outside that range reads back brought into it, and a written one outside it is refused with `400 unsupported_size`.
-- **A block with no URL** reads as it did before: nothing.
-- **A background color on one of these blocks isn't kept** in the Markdown.
+- **A block with no URL** reads as it did before: nothing. That includes one whose upload is still running, so writing its section back removes it.
+- **A background color on one of these blocks isn't kept** in the Markdown, and neither is a video's text alignment.
 - **A plain link, `[NAME](/api/uploads/<id>)`, stays a link** in a paragraph. Only the HTML above makes a block.
 - **An event-handler attribute** such as `onload` on any of these elements is refused with `400 unsupported_block`, as everywhere else.
-- **Markdown read from an earlier version** showed these blocks as a link or a bare `<audio>` / `<video>`. Reading the same note now gives the HTML above, so a fingerprint taken before the upgrade no longer matches; read it again.
+- **Markdown read from an earlier version** showed these blocks as a link or a bare `<audio>` / `<video>`. Reading the same note now gives the HTML above. Fingerprints come from the blocks, not the text, so they don't change: text read before the upgrade and written back with its fingerprint is accepted, and turns those blocks into links as before (an audio or video block loses its name). Read the note again before editing one with audio, video or file blocks.
 
 ## Presence
 

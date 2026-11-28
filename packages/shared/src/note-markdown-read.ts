@@ -34,7 +34,7 @@ const colorStyleType = (el: Element): keyof typeof STYLE_CSS | null => {
   const t = el.getAttribute("data-style-type");
   return t === "textColor" || t === "backgroundColor" ? t : null;
 };
-/** File blocks export as links and HTML can't restore them, so their background color is dropped. */
+/** Media blocks' background color isn't carried by the read form, so it is dropped. */
 const isFileBlock = (el: Element): boolean => el.hasAttribute("data-url") && (el.tagName === "A" || el.tagName === "DIV");
 const isDisplayableColor = (v: string | null): v is string => v !== null && isShownColor(v);
 /** The parser drops empty `<p>`, so a color on an empty block can't round-trip; empty table cells are kept. */

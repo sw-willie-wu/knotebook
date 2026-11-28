@@ -57,7 +57,7 @@ Releases before 0.16 are in [`docs/changelog/`](docs/changelog/), one file per m
 
 ### Upgrade notes
 
-- **Audio, video and file blocks read differently.** For a note that contains an audio, video or file block, the Markdown that reading gives changes — an audio or video block no longer reads as a link or a bare `<audio>` / `<video>`, and a file block no longer reads as a link — so an `edit_note` `if_match` fingerprint taken before the upgrade no longer matches (read the section again), and a bulk-transfer download's text for such a note differs from an earlier download. Notes without audio, video or file blocks read exactly as before.
+- **Audio, video and file blocks read differently.** For a note that contains an audio, video or file block, the Markdown that reading gives changes — an audio or video block no longer reads as a link or a bare `<audio>` / `<video>`, and a file block no longer reads as a link — and a bulk-transfer download's text for such a note differs from an earlier download. Fingerprints are computed from the blocks, not the text, so they don't change: text read before the upgrade and written back with its fingerprint is accepted, and turns those blocks into links as before. Have agents read the note again before editing a note with audio, video or file blocks. Notes without audio, video or file blocks read exactly as before.
 
 - **A search with spaces in it now means several keywords.** `deploy prod` used to look for that exact text and now finds notes containing both words; put it in double quotes (`"deploy prod"`) to search for the exact text as before. This applies to the sidebar, `GET /api/search` and `search_notes`.
 

@@ -429,6 +429,8 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [A reverse proxy whose body limit is below the site's upload limit can make a refusal look like a network error.](./known-limitations/uploads.md)
 - [Two file picks for the same block within one pre-check window both upload.](./known-limitations/uploads.md)
 - [An editor that re-attaches soon after a reconnect may not see other people's presence until their next renewal.](./known-limitations/uploads.md)
+- [A media block still uploading reads as nothing, so an agent that rewrites its section removes it.](./known-limitations/uploads.md)
+- [Audio, video and file blocks pasted as HTML into the editor store an absolute URL.](./known-limitations/uploads.md)
 
 ## Sharing and groups
 
