@@ -107,7 +107,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [The presentation overview (O) shows the content of only the slides near the current one.](./known-limitations/presentations.md)
 - [Opening a presentation link while signed out starts at the cover after you sign in.](./known-limitations/presentations.md)
 - [Changing the slide part of the address by hand while presenting does not move to that slide.](./known-limitations/presentations.md)
-- [On touch screens, a swipe doesn't change slides on a slide that scrolls, on a table, on a code block too wide to fit, or on a video or audio player.](./known-limitations/presentations.md)
+- [On touch screens, a swipe doesn't move between vertical sub-slides on a slide that scrolls, or change slides from a table, a code block too wide to fit, or a video or audio player.](./known-limitations/presentations.md)
 - [iPhone Safari can't show a presentation full screen.](./known-limitations/presentations.md)
 - [Diagrams in a presentation follow the same rules as in the editor](./known-limitations/presentations.md)
 - [Opening a presentation removes any other query parameters from the address.](./known-limitations/presentations.md)

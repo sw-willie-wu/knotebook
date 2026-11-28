@@ -45,6 +45,8 @@ Releases before 0.16 are in [`docs/changelog/`](docs/changelog/), one file per m
 
 - **Two-finger zoom now works on slides in presentation mode on touch screens** (#235). Slides that fit on screen, short code blocks and vertical sub-slides used to turn pinch-zoom off along with the browser's own panning, so that a swipe would change slides. They now allow pinch-zoom while still leaving one-finger swipes to the presentation; slides that scroll keep scrolling as before.
 
+- **Swiping left or right now changes slides on overflowing slides in presentation mode on touch screens** (#573). A slide taller than the screen used to turn off all swipe navigation so the finger could scroll it, leaving only the on-screen arrows to move on. Horizontal swipes now move to the previous or next slide while vertical movement keeps scrolling the content, and diagonal, short, multi-finger or zoomed-in gestures are ignored. Tables, code blocks wider than the slide, and video or audio players still keep their own swipes, and moving between vertical sub-slides on a scrolling slide stays on the on-screen arrows. See [Known limitations — Presentations](docs/known-limitations/presentations.md).
+
 ### Fixed
 
 - **Typing ```` ```mermaid ```` and pressing Enter or Space now makes a diagram block** and opens its source for editing. It used to make a code block with the language `mermaid`; pasting already made a diagram.

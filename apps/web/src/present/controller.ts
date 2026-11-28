@@ -12,6 +12,7 @@ import { restackSlideBody } from "./columns";
 import { createDebouncer } from "./debounce";
 import { applyRenderedDeck, createDeckDom, playingMedia, SLIDE_ID_ATTR, watchSwipeGuards, withoutTransition, type SwipeGuards } from "./deck";
 import type { HashWriter } from "./hash-writer";
+import { attachOverflowSwipe, type OverflowSwipeHandle } from "./overflow-swipe";
 import {
   codeHighlightJobsIn, mermaidJobsIn, runCodeHighlightJob, runMermaidJob,
   type CodeHighlightJob, type MermaidJob, type PostprocessContext,
@@ -90,6 +91,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
   let reveal: RevealApi | null = null;
   let editor: ExportEditor | null = null;
   let swipe: SwipeGuards | null = null;
+  let overflowSwipe: OverflowSwipeHandle | null = null;
   let unsubscribeSource: (() => void) | null = null;
   let lastSource: { doc: Y.Doc; title: string } | null = null;
   let currentId = COVER_ID;
@@ -228,6 +230,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
     debouncer.cancel();
     unsubscribeSource?.();
     swipe?.disconnect();
+    overflowSwipe?.disconnect();
     reveal?.off("slidechanged", onSlideChanged);
     reveal?.destroy();
     dom.revealEl.remove();
@@ -241,6 +244,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
     reveal = null;
     editor = null;
     swipe = null;
+    overflowSwipe = null;
     unsubscribeSource = null;
     lastSource = null;
     if (announced) {
@@ -289,6 +293,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
         }
         instance.on("slidechanged", onSlideChanged);
         swipe = watchSwipeGuards(dom.slidesEl);
+        overflowSwipe = attachOverflowSwipe(dom.revealEl, instance);
         for (const els of dom.els.values()) swipe.observe(els);
         const target = slideIdFromHash(env().hash);
         const position = target === null ? null : locateSlide(dom.sections, target);

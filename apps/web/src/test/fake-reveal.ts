@@ -40,6 +40,13 @@ export class FakeReveal {
     this.indices = { h, v };
     if (changed) this.emitSlideChanged();
   });
+  readonly left = vi.fn(() => {
+    if (this.indices.h > 0) this.slide(this.indices.h - 1, 0);
+  });
+  readonly right = vi.fn(() => {
+    const count = this.el.querySelectorAll(":scope > .slides > section").length;
+    if (this.indices.h + 1 < count) this.slide(this.indices.h + 1, 0);
+  });
   readonly toggleOverview = vi.fn((override?: boolean) => {
     this.overview = override ?? !this.overview;
   });

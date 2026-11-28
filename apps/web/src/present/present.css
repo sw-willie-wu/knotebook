@@ -40,14 +40,21 @@
 }
 /* touch-action:pinch-zoom on non-overflowing slides: a section is an overflow-y:auto scroll container, so with any pan allowed Chromium sends pointercancel after the first pointermove and reveal 6.0.2's pointer swipe stalls (~27px < 40px threshold).
    pinch-zoom still hands one-finger moves to the page (no pan), so swipes work and two-finger zoom stays on (#235).
-   Not pan-y: it breaks up/down swipes between vertical slides. Overflowing slides, table wrappers and overflowing <pre> carry data-prevent-swipe and keep native scrolling.
-   Chromium re-adds pan on any element that is itself a scroll container (an overflow-x:auto <pre> even when it fits), hence the next rule. */
+   Not pan-y: it breaks up/down swipes between vertical slides. Overflowing slides carry data-prevent-swipe and use pan-y pinch-zoom so vertical scroll and pinch-zoom stay native while overflow-swipe.ts handles horizontal swipes (#573).
+   Table wrappers and overflowing <pre> carry data-prevent-swipe with default touch-action so they keep native horizontal scrolling.
+   Chromium re-adds pan on any element that is itself a scroll container (an overflow-x:auto <pre> even when it fits), hence the two <pre> rules. */
 .kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) {
   touch-action: pinch-zoom;
 }
 /* Anchored under a non-overflowing section: if an overflowing slide set <pre> to pinch-zoom, a gesture starting on code could not scroll the slide. */
 .kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) pre:not([data-prevent-swipe]) {
   touch-action: pinch-zoom;
+}
+.kn-present .reveal .slides section[data-kn-slide-id][data-prevent-swipe] {
+  touch-action: pan-y pinch-zoom;
+}
+.kn-present .reveal .slides section[data-kn-slide-id][data-prevent-swipe] pre:not([data-prevent-swipe]) {
+  touch-action: pan-y pinch-zoom;
 }
 .kn-present .reveal .slides section.kn-present-stack {
   padding: 0;

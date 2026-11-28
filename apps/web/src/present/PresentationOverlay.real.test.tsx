@@ -217,4 +217,45 @@ describe("PresentationOverlay (real reveal.js 6.0.2)", () => {
       unmount();
     });
   });
+
+  it("horizontal swipe on an overflowing slide advances exactly one slide without double-triggering reveal (#573)", async () => {
+    window.history.replaceState(null, "", "/n/tester/my-note?present");
+    const { unmount } = render(<App />);
+    await waitFor(() => expect(document.querySelector(".reveal.ready")).not.toBeNull());
+    await waitFor(() => expect(captured.listening).toContain("slidechanged"));
+
+    const cover = document.querySelector<HTMLElement>('section.present[data-kn-slide-id="_title"]')!;
+    cover.setAttribute("data-prevent-swipe", "");
+
+    const dispatchPointer = (target: Element, type: string, pointerId: number, clientX: number, clientY: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        pointerId: { value: pointerId },
+        pointerType: { value: "touch" },
+        clientX: { value: clientX },
+        clientY: { value: clientY },
+      });
+      target.dispatchEvent(event);
+    };
+
+    // Swipe left on overflowing cover -> moves to slide A (index 1), not slide B (index 2)
+    act(() => {
+      dispatchPointer(cover, "pointerdown", 1, 320, 200);
+      dispatchPointer(cover, "pointermove", 1, 240, 202);
+      dispatchPointer(cover, "pointerup", 1, 180, 205);
+    });
+    expect(captured.instances[0].getIndices().h).toBe(1);
+
+    // Slide A does not carry data-prevent-swipe: reveal handles swiping left to slide B (index 2) without double-triggering
+    const slideA = document.querySelector<HTMLElement>('section.present[data-kn-slide-id="a"]')!;
+    expect(slideA.hasAttribute("data-prevent-swipe")).toBe(false);
+    act(() => {
+      dispatchPointer(slideA, "pointerdown", 2, 320, 200);
+      dispatchPointer(slideA, "pointermove", 2, 240, 200);
+      dispatchPointer(slideA, "pointerup", 2, 180, 200);
+    });
+    expect(captured.instances[0].getIndices().h).toBe(2);
+
+    unmount();
+  });
 });

@@ -5,7 +5,7 @@ import type { RenderedSection } from "./render";
  * of the background editor.
  * Updates remove unwanted elements first and insertBefore the rest in order, so unmoved elements never leave the document
  * (media leaving the document is paused by the browser).
- * data-prevent-swipe: on an overflowing slide's scroll container and on a horizontally overflowing `<pre>`, so a finger scrolls instead of paging.
+ * data-prevent-swipe: on an overflowing slide's scroll container (reveal leaves vertical scrolling alone while overflow-swipe.ts handles horizontal swipes) and on a horizontally overflowing `<pre>`, so a finger scrolls instead of paging.
  */
 export const SLIDE_ID_ATTR = "data-kn-slide-id";
 export const STACK_CLASS = "kn-present-stack";

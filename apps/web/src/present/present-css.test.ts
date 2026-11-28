@@ -67,4 +67,9 @@ describe("present.css", () => {
   it("a <pre> that doesn't overflow horizontally inside a non-overflowing slide also gets touch-action:pinch-zoom (<pre> is a scroll container; otherwise a swipe starting on short code wouldn't change slides)", () => {
     expect(rule(".kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) pre:not([data-prevent-swipe])")).toContain("touch-action: pinch-zoom;");
   });
+
+  it("overflowing slides and their non-overflowing <pre> get touch-action:pan-y pinch-zoom so vertical scrolling and pinch-zoom stay native while overflow-swipe handles horizontal swipes (#573)", () => {
+    expect(rule(".kn-present .reveal .slides section[data-kn-slide-id][data-prevent-swipe] {")).toContain("touch-action: pan-y pinch-zoom;");
+    expect(rule(".kn-present .reveal .slides section[data-kn-slide-id][data-prevent-swipe] pre:not([data-prevent-swipe])")).toContain("touch-action: pan-y pinch-zoom;");
+  });
 });
