@@ -1,19 +1,18 @@
 import "@/i18n/file-preview-strings";
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { hideOthers } from "aria-hidden";
-import { Dialog as DialogPrimitive } from "radix-ui";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import { cardSurface } from "@/components/ui/card";
+import { Dialog, DialogClose, DialogContent, DialogPortal, DialogTitle, dialogOverlayClass } from "@/components/ui/dialog";
+import { managementCardPhone, managementCardPhoneInset, managementTray, panelCloseHit } from "@/components/management/tray";
+import { cn } from "@/lib/utils";
 import { focusReturnTarget } from "@/components/media-zoom/focus-return";
 import { lockRootScroll } from "@/components/media-zoom/root-scroll-lock";
 import { X } from "@/components/ui/icons";
 import { Download, ExternalLink } from "@/components/ui/icons-extra";
 import type { FilePreviewRequest } from "./file-preview-target";
 import { loadTextPreview, type TextPreview } from "./text-preview";
-
-/** Max movement (px) from press to release on the backdrop that still counts as a click, as in the image lightbox. */
-const TAP_SLOP = 4;
-
-const OVERLAY = "fixed inset-0 z-50 bg-black/80";
 
 const ACTION =
   "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -85,7 +84,6 @@ export function FilePreviewDialog({ request, onClose }: { request: FilePreviewRe
   const [modal] = useState(() => origin.closest('[role="dialog"]') !== null);
   const [contentNode, setContentNode] = useState<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const backdropPress = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => (modal || contentNode === null ? undefined : hideOthers(contentNode)), [modal, contentNode]);
   // Layout effect: lock before first paint so the scrollbar doesn't flash.
@@ -100,67 +98,54 @@ export function FilePreviewDialog({ request, onClose }: { request: FilePreviewRe
   }
 
   return (
-    <DialogPrimitive.Root
+    <Dialog
       open
       modal={modal}
       onOpenChange={open => {
         if (!open) onClose();
       }}
     >
-      <DialogPrimitive.Portal>
-        {/* Radix keeps a modal dialog's scroll lock on its Overlay, so the modal form needs the real one. */}
-        {modal ? <DialogPrimitive.Overlay className={OVERLAY} /> : <div aria-hidden="true" className={OVERLAY} />}
-        {/* Full screen, so the backdrop click is a click on the content itself: closing on that click, not on press, leaves no
-            click to land on the page underneath. */}
-        <DialogPrimitive.Content
-          ref={setContentNode}
-          aria-modal="true"
-          aria-describedby={undefined}
-          data-file-preview=""
-          className="fixed inset-0 z-50 flex justify-center outline-none sm:p-6"
-          onPointerDown={event => {
-            backdropPress.current = event.target === event.currentTarget ? { x: event.clientX, y: event.clientY } : null;
-          }}
-          onClick={event => {
-            const press = backdropPress.current;
-            backdropPress.current = null;
-            // A click also lands here when a text selection or a scrollbar drag starts in the panel and ends on the backdrop.
-            if (event.target !== event.currentTarget || press === null) return;
-            if (Math.hypot(event.clientX - press.x, event.clientY - press.y) <= TAP_SLOP) onClose();
-          }}
-          onKeyDown={handleKeyDown}
-          onOpenAutoFocus={event => {
-            event.preventDefault();
-            closeRef.current?.focus();
-          }}
-          onPointerDownOutside={event => {
-            // A press on the scrollbar (or its reserved space) targets `<html>`: not a request to close.
-            if (event.detail.originalEvent.target === document.documentElement) event.preventDefault();
-          }}
-          onFocusOutside={event => {
-            event.preventDefault();
-            closeRef.current?.focus();
-          }}
-          onCloseAutoFocus={event => {
-            event.preventDefault();
-            focusReturnTarget(origin, origin)?.focus();
-          }}
-        >
-          <div className="flex h-full w-full max-w-5xl flex-col overflow-hidden bg-card text-card-foreground shadow-xl sm:rounded-lg">
-            <div
-              data-file-preview-header=""
-              className="flex shrink-0 touch-none items-center gap-1 border-b pt-[max(0.5rem,env(safe-area-inset-top))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-2 pl-[max(1rem,env(safe-area-inset-left))]"
-            >
-              <DialogPrimitive.Title className="min-w-0 flex-1 truncate text-sm font-medium">{name}</DialogPrimitive.Title>
+      {/* Radix renders its Overlay only in modal mode (where it also carries the scroll lock), so the non-modal form draws the same backdrop. */}
+      {!modal && (
+        <DialogPortal>
+          <div aria-hidden="true" data-state="open" className={cn(dialogOverlayClass, "kb-sheet-overlay touch-none")} />
+        </DialogPortal>
+      )}
+      <DialogContent
+        ref={setContentNode}
+        size="panel"
+        aria-modal="true"
+        aria-describedby={undefined}
+        data-file-preview=""
+        onKeyDown={handleKeyDown}
+        onOpenAutoFocus={event => {
+          event.preventDefault();
+          closeRef.current?.focus();
+        }}
+        onPointerDownOutside={event => {
+          // A press on the scrollbar (or its reserved space) targets `<html>`: not a request to close.
+          if (event.detail.originalEvent.target === document.documentElement) event.preventDefault();
+        }}
+        onFocusOutside={event => {
+          event.preventDefault();
+          closeRef.current?.focus();
+        }}
+        onCloseAutoFocus={event => {
+          event.preventDefault();
+          focusReturnTarget(origin, origin)?.focus();
+        }}
+      >
+        <div className={managementTray}>
+          <div className={cn(cardSurface, "relative flex min-w-0 flex-1 flex-col overflow-hidden", managementCardPhone, managementCardPhoneInset)}>
+            <div data-file-preview-header="" className="flex h-12 shrink-0 touch-none items-center gap-1 border-b pr-12 pl-4">
+              <DialogTitle className="min-w-0 flex-1 truncate text-[15px] leading-tight font-semibold tracking-normal max-sm:text-lg">{name}</DialogTitle>
               <FileActions url={url} compact />
-              <DialogPrimitive.Close
-                ref={closeRef}
-                aria-label={t("note.zoom.close")}
-                className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:p-2.5"
-              >
-                <X className="h-5 w-5" />
-              </DialogPrimitive.Close>
             </div>
+            <DialogClose asChild>
+              <Button ref={closeRef} type="button" variant="ghost" size="icon" className={cn("absolute top-2 right-2 z-10 h-7 w-7 bg-card max-sm:bg-popover", panelCloseHit)} aria-label={t("note.zoom.close")}>
+                <X className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </DialogClose>
             <div className="relative min-h-0 flex-1">
               {kind === "pdf" ? (
                 // No `sandbox`: it disables the browsers' PDF viewers.
@@ -170,8 +155,8 @@ export function FilePreviewDialog({ request, onClose }: { request: FilePreviewRe
               )}
             </div>
           </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

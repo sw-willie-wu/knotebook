@@ -276,9 +276,12 @@ describe("the modal", () => {
     ["the close button", (dialog: HTMLElement) => fireEvent.click(within(dialog).getByRole("button", { name: "Close" }))],
     [
       "a press and click on the backdrop",
-      (dialog: HTMLElement) => {
-        fireEvent.pointerDown(dialog, { clientX: 20, clientY: 20 });
-        fireEvent.click(dialog, { clientX: 22, clientY: 21 });
+      () => {
+        const backdrop = document.querySelector<HTMLElement>(".kb-sheet-overlay")!;
+        fireEvent.pointerDown(backdrop, { button: 0 });
+        // The press alone must not close: the close waits for the click, so no click lands on the page underneath.
+        expect(screen.getByRole("dialog")).toBeInTheDocument();
+        fireEvent.click(backdrop, { button: 0 });
       },
     ],
   ])("%s closes it and focus returns to the link", async (_label, close) => {
@@ -303,7 +306,7 @@ describe("the modal", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  // The browser sends the click to the common ancestor of press and release, which is the content element (the backdrop).
+  // The press starts in the panel, so Radix sees no outside press and the click that follows a drag lands on a common ancestor.
   it("a text selection dragged from the text and released on the backdrop does not close it", async () => {
     textResponse("alpha,1");
     const { link } = setup("data.csv");
@@ -311,19 +314,20 @@ describe("the modal", () => {
     const dialog = await screen.findByRole("dialog");
     const pre = await within(dialog).findByText("alpha,1");
     fireEvent.pointerDown(pre, { clientX: 300, clientY: 200 });
-    fireEvent.click(dialog, { clientX: 300, clientY: 200 });
+    fireEvent.pointerUp(document.body, { clientX: 20, clientY: 20 });
+    fireEvent.click(document.body, { clientX: 20, clientY: 20 });
     await act(async () => {});
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("a press on the backdrop that moves before release (a drag) does not close it", async () => {
+  it("a press on the page's scrollbar (the document element) does not close it", async () => {
     textResponse("alpha,1");
     const { link } = setup("data.csv");
     click(link);
     const dialog = await screen.findByRole("dialog");
     await within(dialog).findByText("alpha,1");
-    fireEvent.pointerDown(dialog, { clientX: 20, clientY: 20 });
-    fireEvent.click(dialog, { clientX: 20, clientY: 60 });
+    fireEvent.pointerDown(document.documentElement);
+    fireEvent.click(document.documentElement);
     await act(async () => {});
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });

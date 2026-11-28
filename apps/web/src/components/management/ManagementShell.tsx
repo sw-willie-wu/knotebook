@@ -15,13 +15,12 @@ import {
   managementNavItemClass,
   managementNavListClass,
   managementTray,
+  panelCloseHit as PANEL_CLOSE_HIT,
 } from "@/components/management/tray";
 import { isPhone, useIsPhone } from "@/lib/layout-tiers";
 import { forgetPanelReturn, panelReturnFor, type PanelLocationState } from "@/lib/panel-return";
 import { cn } from "@/lib/utils";
 
-/** Expands the 28px button's touch hit area to 44x44. The pseudo-element needs a positioned button; callers add `relative` if it isn't `absolute`. */
-const PANEL_CLOSE_HIT = "pointer-coarse:after:absolute pointer-coarse:after:-inset-2 pointer-coarse:after:content-['']";
 /** Phone width gets 44x44 regardless of pointer type (a mouse at phone width too). */
 const PHONE_BACK_HIT = "max-sm:after:absolute max-sm:after:-inset-2 max-sm:after:content-['']";
 /** Phone cards sit flush with the sheet's left edge, so the button clears the left safe area itself (the side in landscape), staying at least 8px from the card edge as at other widths. */

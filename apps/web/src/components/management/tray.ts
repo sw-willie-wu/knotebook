@@ -73,3 +73,6 @@ export const managementContentTopPhone = "max-sm:pt-16";
 
 /** Phone: pulls the 48px title up 48px so its midline meets "‹"'s midline (40px). Pairs with `managementContentTopPhone`. */
 export const managementHeadingUpPhone = "max-sm:-mt-12 max-sm:flex max-sm:min-h-12 max-sm:items-center max-sm:pl-10";
+
+/** Expands a 28px close button's touch hit area to 44x44. The pseudo-element needs a positioned button; callers add `relative` if it isn't `absolute`. */
+export const panelCloseHit = "pointer-coarse:after:absolute pointer-coarse:after:-inset-2 pointer-coarse:after:content-['']";

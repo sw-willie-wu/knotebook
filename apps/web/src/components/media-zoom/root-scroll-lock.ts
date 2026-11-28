@@ -5,9 +5,9 @@
  * Locks only when the primary pointer is a mouse/trackpad or the page has a reserved scrollbar (e.g. Windows in tablet
  * mode): touch devices without one are left alone. The zoom is `touch-none` across the screen. For the file preview, from `sm` up
  * the note scrolls in its own container, which the portalled preview isn't inside, so a swipe on the backdrop has nothing to
- * scroll; on a phone the document scrolls, and a swipe on a part of the panel that doesn't scroll can still move the note behind
- * it (docs/known-limitations/uploads.md). Making the preview `touch-none` would cover that, at the risk of blocking its own text
- * scrolling on browsers that resolve touch-action differently.
+ * scroll; on a phone the document scrolls, so the preview's backdrop and header are `touch-none`, but a swipe on its body when
+ * that doesn't scroll (a short text, the loading line, a message) can still move the note behind it
+ * (docs/known-limitations/uploads.md). Making the body `touch-none` too would risk blocking its own text scrolling.
  */
 export function lockRootScroll(): () => void {
   const root = document.documentElement;
