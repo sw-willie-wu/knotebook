@@ -486,7 +486,7 @@ describe("read -> write back as-is -> read: consistent, no color lost", () => {
     { type: "table", props: { textColor: "blue" }, content: { type: "tableContent", headerRows: 1, rows: [{ cells: ["h1", "h2"] }, { cells: [{ type: "tableCell", content: [{ type: "text", text: "r", styles: { textColor: "red" } }] }, { type: "tableCell", content: "t", props: { textColor: "green", backgroundColor: "gray" } }] }] } },
     { type: "table", content: { type: "tableContent", rows: [{ cells: ["plain", "table"] }] } },
     { type: "image", props: { url: "http://localhost/api/uploads/x.png", backgroundColor: "red", caption: "cap" } },
-    { type: "codeBlock", props: { language: "js" }, content: "a\n\nb" },
+    { type: "codeBlock", props: { language: "javascript" }, content: "a\n\nb" },
     { type: "bulletListItem", content: [{ type: "text", text: "b ", styles: {} }, { type: "text", text: "late", styles: { textColor: "red" } }, { type: "text", text: " *x* [a](b)", styles: {} }] },
     { type: "paragraph", content: [{ type: "text", text: "a", styles: { bold: true } }, { type: "text", text: "b*_", styles: { bold: true, italic: true, textColor: "red" } }, { type: "text", text: "c", styles: { bold: true } }, { type: "text", text: "d", styles: {} }] },
     { type: "table", content: { type: "tableContent", rows: [{ cells: ["x", { type: "tableCell", content: [{ type: "text", text: "hi", styles: { backgroundColor: "yellow" } }] }] }] } },

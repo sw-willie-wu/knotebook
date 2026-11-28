@@ -185,6 +185,9 @@ importers:
       mermaid:
         specifier: ^11.17.2
         version: 11.17.2
+      prosemirror-highlight:
+        specifier: ^0.15.1
+        version: 0.15.3(@shikijs/types@4.4.3)(@types/hast@3.0.5)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.2)
       prosemirror-view:
         specifier: ^1.41.4
         version: 1.42.2
@@ -9161,6 +9164,15 @@ snapshots:
   prosemirror-highlight@0.15.3(@shikijs/types@4.4.2)(@types/hast@3.0.5)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.2):
     optionalDependencies:
       '@shikijs/types': 4.4.2
+      '@types/hast': 3.0.5
+      prosemirror-model: 1.25.11
+      prosemirror-state: 1.4.4
+      prosemirror-transform: 1.12.0
+      prosemirror-view: 1.42.2
+
+  prosemirror-highlight@0.15.3(@shikijs/types@4.4.3)(@types/hast@3.0.5)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.2):
+    optionalDependencies:
+      '@shikijs/types': 4.4.3
       '@types/hast': 3.0.5
       prosemirror-model: 1.25.11
       prosemirror-state: 1.4.4
