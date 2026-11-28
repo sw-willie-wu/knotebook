@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import i18n from "@/i18n";
-import { jsonResponse, nid, notification, notificationPage, stubNotificationFetch } from "@/test/notification-fixtures";
+import { NOTIFICATION_NOTE, jsonResponse, nid, notification, notificationPage, stubNotificationFetch, uploadNotification } from "@/test/notification-fixtures";
 import { NotificationList } from "./NotificationList";
 
 const LIST = "/api/notifications?limit=30";
@@ -59,6 +59,58 @@ describe("NotificationList", () => {
     expect(within(row).queryByTestId("notification-note")).toBeNull();
     expect(within(row).queryByRole("button", { name: /replied to your comment/ })).toBeNull();
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("an upload_finished row shows the upload icon instead of an avatar, the file and the note, and opens the note at the block", async () => {
+    stubNotificationFetch({ [LIST]: jsonResponse(notificationPage([uploadNotification(1, { isNew: true })])), [SEEN]: jsonResponse(null, 204) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let at = "";
+    function Where() {
+      const loc = useLocation();
+      at = `${loc.pathname}${loc.search}${loc.hash}`;
+      return null;
+    }
+    const onNavigate = vi.fn();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <NotificationList userId="u-alice" onNavigate={onNavigate} layout="popover" />
+          <Where />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const row = await screen.findByTestId("notification");
+    expect(within(row).getByTestId("notification-upload-icon")).toBeInTheDocument();
+    expect(row.querySelector("img")).toBeNull();
+    expect(within(row).getByTestId("notification-new")).toBeInTheDocument();
+    const button = within(row).getByRole("button", { name: /Upload finished/ });
+    expect(button).toHaveTextContent("Upload finished: meeting-recording.mp4 was added to Weekly meeting");
+    expect(within(row).queryByTestId("notification-no-access")).toBeNull();
+    fireEvent.click(button);
+    expect(at).toBe(`/notes/${NOTIFICATION_NOTE}#b-v1`);
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("an upload_finished row on a note that can't be read names only the file and can't be opened", async () => {
+    stubNotificationFetch({
+      [LIST]: jsonResponse(notificationPage([uploadNotification(1, { canOpen: false, noteId: null, noteTitle: null, blockId: null })])),
+      [SEEN]: jsonResponse(null, 204),
+    });
+    const { onNavigate } = renderList();
+    const row = await screen.findByTestId("notification");
+    expect(row).toHaveTextContent("Upload finished: meeting-recording.mp4");
+    expect(row).not.toHaveTextContent("was added to");
+    expect(within(row).getByTestId("notification-no-access")).toHaveTextContent("You can't open this note any more.");
+    expect(within(row).queryByRole("button", { name: /Upload finished/ })).toBeNull();
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("an upload_finished row reads in zh-TW", async () => {
+    await i18n.changeLanguage("zh-TW");
+    stubNotificationFetch({ [LIST]: jsonResponse(notificationPage([uploadNotification(1)])), [SEEN]: jsonResponse(null, 204) });
+    renderList();
+    const row = await screen.findByTestId("notification");
+    expect(row).toHaveTextContent("上傳完成：meeting-recording.mp4 已加入「Weekly meeting」");
   });
 
   it("labels a row addressed to the person's agent and names an agent actor as handle (label)", async () => {

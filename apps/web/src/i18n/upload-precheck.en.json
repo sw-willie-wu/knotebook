@@ -1,0 +1,8 @@
+{
+  "uploadPrecheck": {
+    "unsupported": "This file type isn't supported. You can upload images, audio, video, PDFs, Office documents and text files.",
+    "empty": "This file is empty.",
+    "tooLarge": "This file is {{size}}; the limit for this type is {{limit}}.",
+    "noRoom": "This file is {{size}}; this space has {{room}} left."
+  }
+}

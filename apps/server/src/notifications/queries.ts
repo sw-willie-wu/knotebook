@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import type { AvatarRef, NotificationDto, NotificationListDto } from "@knotebook/shared";
+import { uploadServedName, type AvatarRef, type CommentNotificationDto, type NotificationDto, type NotificationListDto } from "@knotebook/shared";
 import { readAvatarRefs } from "../avatars/read.js";
 import { agentLagSql, encodeCursor, type CommentCursor } from "../comments/queries.js";
 import type { DbOrTx } from "../db/tx.js";
-import { groupMembers, groupRoles, noteComments, noteShares, notes, notificationSeen, notifications, users } from "../db/schema.js";
+import { groupMembers, groupRoles, noteComments, noteShares, notes, notificationSeen, notifications, uploads, users } from "../db/schema.js";
 import { UUID_RE, noteAccessFromRow } from "../notes/service.js";
 
 export const NOTIFICATION_PAGE_DEFAULT = 30;
@@ -35,8 +35,8 @@ async function accessRowsFor(db: DbOrTx, userId: string, noteIds: string[]) {
 }
 
 /**
- * The caller's notifications, newest first, with agent-addressed ones included. A row whose note the caller can't read any more
- * carries the actor, kind and time only.
+ * The caller's notifications, newest first, with agent-addressed ones included. A comment row whose note the caller can't read any more
+ * carries the actor, kind and time only; an upload row, the file name, kind and time.
  */
 export async function listNotifications(db: DbOrTx, input: { userId: string; before: CommentCursor | null; limit: number }): Promise<NotificationListDto> {
   const { userId, limit } = input;
@@ -47,6 +47,10 @@ export async function listNotifications(db: DbOrTx, input: { userId: string; bef
       agentLabel: notifications.agentLabel,
       noteId: notifications.noteId,
       commentId: notifications.commentId,
+      uploadId: notifications.uploadId,
+      blockId: notifications.blockId,
+      uploadFileName: uploads.fileName,
+      uploadMime: uploads.mime,
       actorId: notifications.actorId,
       actorAgentLabel: notifications.actorAgentLabel,
       createdAt: notifications.createdAt,
@@ -57,6 +61,7 @@ export async function listNotifications(db: DbOrTx, input: { userId: string; bef
     })
     .from(notifications)
     .innerJoin(users, eq(users.id, notifications.actorId))
+    .leftJoin(uploads, eq(uploads.id, notifications.uploadId))
     .where(
       and(
         eq(notifications.userId, userId),
@@ -75,7 +80,7 @@ export async function listNotifications(db: DbOrTx, input: { userId: string; bef
   for (const a of await accessRowsFor(db, userId, noteIds)) {
     if (noteAccessFromRow(a, userId).permissions.read) readable.set(a.id, a.title);
   }
-  const openIds = page.filter(r => readable.has(r.noteId)).map(r => r.commentId);
+  const openIds = page.flatMap(r => (r.commentId !== null && readable.has(r.noteId) ? [r.commentId] : []));
   const excerpts = new Map<string, string>();
   if (openIds.length > 0) {
     const found = await db
@@ -84,15 +89,29 @@ export async function listNotifications(db: DbOrTx, input: { userId: string; bef
       .where(inArray(noteComments.id, openIds));
     for (const f of found) excerpts.set(f.id, f.excerpt);
   }
-  const avatars: Map<string, AvatarRef> = await readAvatarRefs(db, [...new Set(page.map(r => r.actorId))]);
+  const commentRows = page.filter(r => r.kind !== "upload_finished");
+  const avatars: Map<string, AvatarRef> = await readAvatarRefs(db, [...new Set(commentRows.map(r => r.actorId))]);
 
   return {
     notifications: page.map((r): NotificationDto => {
       const title = readable.get(r.noteId);
       const open = title !== undefined;
+      if (r.kind === "upload_finished") {
+        return {
+          id: r.id,
+          kind: "upload_finished",
+          createdAt: r.createdAt.toISOString(),
+          canOpen: open,
+          noteId: open ? r.noteId : null,
+          noteTitle: open ? title : null,
+          blockId: open ? r.blockId : null,
+          fileName: r.uploadFileName ?? uploadServedName(null, r.uploadMime ?? "", r.uploadId!),
+          isNew: r.isNew,
+        };
+      }
       return {
         id: r.id,
-        kind: r.kind as NotificationDto["kind"],
+        kind: r.kind as CommentNotificationDto["kind"],
         agentLabel: r.agentLabel,
         actor: {
           userId: r.actorId,
@@ -106,7 +125,7 @@ export async function listNotifications(db: DbOrTx, input: { userId: string; bef
         noteId: open ? r.noteId : null,
         noteTitle: open ? title : null,
         commentId: open ? r.commentId : null,
-        excerpt: open ? (excerpts.get(r.commentId) ?? "") : null,
+        excerpt: open && r.commentId !== null ? (excerpts.get(r.commentId) ?? "") : null,
         isNew: r.isNew,
       };
     }),
@@ -116,7 +135,7 @@ export async function listNotifications(db: DbOrTx, input: { userId: string; bef
 
 export interface AgentNotificationRow {
   id: string;
-  kind: NotificationDto["kind"];
+  kind: CommentNotificationDto["kind"];
   noteId: string;
   commentId: string;
   actorHandle: string;
@@ -128,8 +147,9 @@ export interface AgentNotificationRow {
 }
 
 /**
- * Up to `max` of the rows addressed to exactly `agentLabel` (null: the person), oldest first, after `after` and at least the agent lag
- * ago, whether or not the caller can still read their notes; `hasMore` when more such rows wait.
+ * Up to `max` of the comment rows addressed to exactly `agentLabel` (null: the person), oldest first, after `after` and at least the agent lag
+ * ago, whether or not the caller can still read their notes; `hasMore` when more such rows wait. Upload rows are the person's own trace,
+ * never addressed to an agent, so they are left out even for the person.
  */
 export async function scanAgentNotifications(
   db: DbOrTx,
@@ -152,6 +172,7 @@ export async function scanAgentNotifications(
     .where(
       and(
         eq(notifications.userId, userId),
+        inArray(notifications.kind, ["mention", "reply"]),
         input.agentLabel === null ? isNull(notifications.agentLabel) : eq(notifications.agentLabel, input.agentLabel),
         input.after === null ? undefined : sql`(${notifications.createdAt}, ${notifications.id}) > (${input.after.ts}::timestamptz, ${input.after.id}::uuid)`,
         agentLagSql(notifications.createdAt),
@@ -169,9 +190,10 @@ export async function scanAgentNotifications(
   return {
     rows: page.map(r => ({
       id: r.id,
-      kind: r.kind as NotificationDto["kind"],
+      kind: r.kind as CommentNotificationDto["kind"],
       noteId: r.noteId,
-      commentId: r.commentId,
+      // notifications_comment_kind_chk: mention and reply rows always have one.
+      commentId: r.commentId!,
       actorHandle: r.actorHandle,
       actorAgentLabel: r.actorAgentLabel,
       createdAt: r.createdAt,

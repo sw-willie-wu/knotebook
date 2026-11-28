@@ -11,6 +11,7 @@ import { UserMenu } from "./UserMenu";
 import { ICON_28_HIT } from "./ui/hit-area";
 import { stubLayoutTier } from "@/test/layout-tier";
 import { pressTrigger } from "@/test/menu-trigger";
+import { getUploadItems, putUpload, resetUploadQueueForTest } from "@/uploads/upload-queue-store";
 
 const ACCENT_STORAGE_KEY = "knotebook:accent";
 
@@ -73,6 +74,30 @@ async function openMenu(): Promise<void> {
   pressTrigger(screen.getByRole("button", { name: "Plain" }));
   await waitFor(() => expect(screen.getByRole("menu")).toBeInTheDocument());
 }
+
+describe("UserMenu log out", () => {
+  afterEach(() => {
+    resetUploadQueueForTest();
+    vi.unstubAllGlobals();
+  });
+
+  it("clears the upload queue: the next person in this tab sees none of these files", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/auth/me") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+        if (url === "/api/auth/logout" && init?.method === "POST") return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    putUpload({ id: "x", noteId: "n", blockId: "b", fileName: "salary.xlsx", size: 1, loaded: 0, expectedUrl: "", status: "failed" });
+    renderMenu();
+    await openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+    await waitFor(() => expect(getUploadItems()).toEqual([]));
+  });
+});
 
 describe("UserMenu accent picker", () => {
   beforeEach(async () => {

@@ -118,9 +118,16 @@ function defaultReload() {
   location.reload();
 }
 
+/**
+ * A `beforeunload` prompt (running uploads) can cancel the reload and leave this page alive; the loading screen would
+ * then stay forever. The reload flag is left set: a reload that is only slow would otherwise earn another automatic one.
+ */
+const RELOAD_ESCAPE_MS = 5_000;
+
 /** Catches any render error below, not only chunk load failures. `pending` must render the fallback, never children: they would throw again and gDSFE would loop without componentDidCatch running. getDerivedStateFromError only sets `pending` (dev calls it twice). */
 export class LazyRouteErrorBoundary extends Component<LazyRouteErrorBoundaryProps, LazyRouteErrorBoundaryState> {
   state: LazyRouteErrorBoundaryState = { status: "normal", isChunkError: false };
+  private reloadEscape: ReturnType<typeof setTimeout> | undefined;
 
   private get chunk(): string {
     return this.props.chunk ?? DEFAULT_CHUNK;
@@ -147,13 +154,20 @@ export class LazyRouteErrorBoundary extends Component<LazyRouteErrorBoundaryProp
     }
     try {
       this.doReload();
-      // `reloading` is terminal with no escape: add one if a beforeunload prompt is ever introduced.
       this.setState({ status: "reloading", isChunkError: true });
+      this.reloadEscape = setTimeout(() => {
+        this.reloadEscape = undefined;
+        if (this.state.status === "reloading") this.setState({ status: "error", isChunkError: true });
+      }, RELOAD_ESCAPE_MS);
     } catch {
       // Clear the flag if the reload did not happen, otherwise it steals the next failure rescue.
       clearReloadFlag(this.chunk);
       this.setState({ status: "error", isChunkError: true });
     }
+  }
+
+  componentWillUnmount() {
+    clearTimeout(this.reloadEscape);
   }
 
   componentDidUpdate(prevProps: LazyRouteErrorBoundaryProps) {

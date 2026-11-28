@@ -17,7 +17,8 @@ import { createLinkSync } from "./link-sync";
 // `createLinkSync` on a 400 calls `toast()` and looks up i18n text (see `handleFailure` in link-sync.ts): replaced by a minimal stand-in so this file's unit tests don't depend on the real Radix toast store / i18next init timing (same toast mock technique as `NoteEditor.test.ts`).
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
-const i18nMock = vi.hoisted(() => ({ t: vi.fn((key: string) => key) }));
+// `addResourceBundle`: the schema registers its lazy string pack on import.
+const i18nMock = vi.hoisted(() => ({ t: vi.fn((key: string) => key), addResourceBundle: vi.fn() }));
 vi.mock("@/i18n", () => ({ default: i18nMock }));
 
 const NOTE_ID = "11111111-1111-1111-1111-111111111111";

@@ -1,19 +1,19 @@
 import "@/i18n/notifications-strings";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { NotificationDto } from "@knotebook/shared";
+import type { CommentNotificationDto, NotificationDto, UploadFinishedNotificationDto } from "@knotebook/shared";
 import { markNotificationsSeen, setUnreadCountToZero, useClearNotifications, useDeleteNotification, useNotificationList } from "@/api/notifications-list";
 import { Avatar } from "@/components/Avatar";
 import { authorName, fullTime, relativeTime } from "@/components/comments/comment-format";
 import { Button } from "@/components/ui/button";
-import { X } from "@/components/ui/icons";
+import { Check, X } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
 
 interface NotificationListProps {
   userId: string;
-  /** Called after navigating to a comment, so the panel closes without taking focus back from the note. */
+  /** Called after navigating to a comment or a block, so the panel closes without taking focus back from the note. */
   onNavigate: () => void;
   layout: "popover" | "sheet";
 }
@@ -54,8 +54,9 @@ export function NotificationList({ userId, onNavigate, layout }: NotificationLis
   }, [settled, newestAt, queryClient, userId]);
 
   function open(n: NotificationDto): void {
-    if (!n.canOpen || n.noteId === null || n.commentId === null) return;
-    void navigate(`/notes/${encodeURIComponent(n.noteId)}?comment=${encodeURIComponent(n.commentId)}`);
+    const to = targetOf(n);
+    if (to === null) return;
+    void navigate(to);
     onNavigate();
   }
 
@@ -158,9 +159,79 @@ export function NotificationList({ userId, onNavigate, layout }: NotificationLis
   );
 }
 
-function NotificationRow({ n, isNew, onOpen, onDelete }: { n: NotificationDto; isNew: boolean; onOpen: () => void; onDelete: () => void }) {
-  const { t, i18n } = useTranslation();
+function targetOf(n: NotificationDto): string | null {
+  if (!n.canOpen || n.noteId === null) return null;
+  const note = `/notes/${encodeURIComponent(n.noteId)}`;
+  if (n.kind === "upload_finished") return n.blockId === null ? null : `${note}#b-${n.blockId}`;
+  return n.commentId === null ? null : `${note}?comment=${encodeURIComponent(n.commentId)}`;
+}
+
+interface RowProps<N> {
+  n: N;
+  isNew: boolean;
+  onOpen: () => void;
+  onDelete: () => void;
+}
+
+function NotificationRow(props: RowProps<NotificationDto>) {
+  const { n } = props;
+  return n.kind === "upload_finished" ? <UploadFinishedRow {...props} n={n} /> : <CommentRow {...props} n={n} />;
+}
+
+function NewBadge() {
+  const { t } = useTranslation();
+  return (
+    <span data-testid="notification-new" className="shrink-0 rounded-full bg-brand-soft px-1.5 text-[10px] font-semibold text-brand">
+      {t("notifications.new")}
+    </span>
+  );
+}
+
+function NoAccess() {
+  const { t } = useTranslation();
+  return (
+    <span data-testid="notification-no-access" className="block text-xs italic text-muted-foreground">
+      {t("notifications.cantOpen")}
+    </span>
+  );
+}
+
+function When({ at }: { at: string }) {
+  const { i18n } = useTranslation();
   const lang = i18n.language;
+  return (
+    <time dateTime={at} title={fullTime(at, lang)} className="block text-xs text-muted-foreground">
+      {relativeTime(at, lang)}
+    </time>
+  );
+}
+
+function UploadFinishedRow({ n, isNew, onOpen, onDelete }: RowProps<UploadFinishedNotificationDto>) {
+  const { t } = useTranslation();
+  const note = n.noteTitle === null || n.noteTitle.trim() === "" ? t("note.titlePlaceholder") : n.noteTitle;
+  const body = (
+    <>
+      <span data-testid="notification-upload-icon" aria-hidden="true" className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-brand-fg">
+        <Check className="h-3.5 w-3.5" strokeWidth={2.4} />
+      </span>
+      <span className="min-w-0 flex-1 space-y-0.5">
+        <span className="flex items-baseline gap-2">
+          <span className="min-w-0 break-words text-sm">
+            <b className="font-semibold">{t("notifications.uploadFinished")}</b>
+            {n.canOpen ? t("notifications.uploadAdded", { file: n.fileName, note }) : t("notifications.uploadAddedNoNote", { file: n.fileName })}
+          </span>
+          {isNew && <NewBadge />}
+        </span>
+        {!n.canOpen && <NoAccess />}
+        <When at={n.createdAt} />
+      </span>
+    </>
+  );
+  return <RowShell n={n} isNew={isNew} onOpen={onOpen} onDelete={onDelete} body={body} />;
+}
+
+function CommentRow({ n, isNew, onOpen, onDelete }: RowProps<CommentNotificationDto>) {
+  const { t } = useTranslation();
   const agentActor = n.actor.agentLabel !== null;
   const who = authorName({ authorHandle: n.actor.handle, authorDisplayName: n.actor.displayName, agentLabel: n.actor.agentLabel });
   const what = n.kind === "mention" ? t("notifications.mentioned", { who }) : t("notifications.replied", { who });
@@ -170,11 +241,7 @@ function NotificationRow({ n, isNew, onOpen, onDelete }: { n: NotificationDto; i
       <span className="min-w-0 flex-1 space-y-0.5">
         <span className="flex items-baseline gap-2">
           <span className="min-w-0 text-sm">{what}</span>
-          {isNew && (
-            <span data-testid="notification-new" className="shrink-0 rounded-full bg-brand-soft px-1.5 text-[10px] font-semibold text-brand">
-              {t("notifications.new")}
-            </span>
-          )}
+          {isNew && <NewBadge />}
         </span>
         {n.agentLabel !== null && (
           <span data-testid="notification-agent" className="block text-xs text-[#7c3aed] dark:text-[#a78bfa]">
@@ -189,17 +256,17 @@ function NotificationRow({ n, isNew, onOpen, onDelete }: { n: NotificationDto; i
             {n.excerpt !== null && n.excerpt !== "" && <span className="line-clamp-2 block break-words text-xs text-muted-foreground">{n.excerpt}</span>}
           </>
         ) : (
-          <span data-testid="notification-no-access" className="block text-xs italic text-muted-foreground">
-            {t("notifications.cantOpen")}
-          </span>
+          <NoAccess />
         )}
-        <time dateTime={n.createdAt} title={fullTime(n.createdAt, lang)} className="block text-xs text-muted-foreground">
-          {relativeTime(n.createdAt, lang)}
-        </time>
+        <When at={n.createdAt} />
       </span>
     </>
   );
+  return <RowShell n={n} isNew={isNew} onOpen={onOpen} onDelete={onDelete} body={body} />;
+}
 
+function RowShell({ n, isNew, onOpen, onDelete, body }: RowProps<NotificationDto> & { body: ReactNode }) {
+  const { t } = useTranslation();
   return (
     <li data-testid="notification" data-notification-id={n.id} data-new={isNew ? "" : undefined} className="group relative flex items-start rounded-md hover:bg-accent">
       {n.canOpen ? (

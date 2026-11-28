@@ -5,9 +5,9 @@ import { ADMIN, chooseSelectOption, adminNav, createNote, createUserViaInvite, e
 /**
  * `finally` points the user back to the new-user default plan through the API (Basic on the e2e stack) and deletes the 1 MB plan.
  *
- * - The paste uses a synthetic `ClipboardEvent("paste")` with a real `DataTransfer`: the toast is the behaviour of
- *   `createUploadFile` (the paste/drop path); the FilePanel Upload tab shows an inline error instead, which is not the exit
- *   under test here.
+ * - The paste uses a synthetic `ClipboardEvent("paste")` with a real `DataTransfer`: the paste/drop path shows its failure on
+ *   the upload block while the note is on screen (no toast); the FilePanel Upload tab shows an inline error instead, which is
+ *   not the exit under test here.
  * - The file is a 1,100,000-byte "PNG": just the 8-byte PNG signature plus zero padding - the server looks only at magic
  *   bytes (`uploads/magic-bytes.ts`) and the browser does not decode it; it must be > 1 MiB (1,048,576) to not fit a 1 MB plan.
  * - The numbers in the usage sentence are an end-to-end guard: if the late-bound translate in `NoteEditor` dropped the
@@ -31,7 +31,7 @@ async function pasteFakePng(page: Page, size: number): Promise<void> {
   }, size);
 }
 
-test("21 storage quota: 1 MB plan assigned to a user -> pasting an image > 1 MB -> \"Storage is full\" toast plus usage", async ({ browser }) => {
+test("21 storage quota: 1 MB plan assigned to a user -> pasting an image > 1 MB -> \"Storage is full\" on the block plus usage", async ({ browser }) => {
   test.setTimeout(120_000);
   const adminContext = await browser.newContext();
   const userContext = await browser.newContext();
@@ -67,11 +67,24 @@ test("21 storage quota: 1 MB plan assigned to a user -> pasting an image > 1 MB 
     await expect(userPage).toHaveURL(/\/$/);
     await createNote(userPage, `E2E quota ${Date.now()}`);
 
+    // The owner can see the space's usage, so the client refuses the file before sending it and the block says why.
+    const editor = editorLocator(userPage);
+    await pasteFakePng(userPage, BIG_FILE_BYTES);
+    await expect(editor.getByText(/this space has 1 MB left\.$/)).toBeVisible({ timeout: 15_000 });
+
+    // With the pre-check blind (usage reported as unlimited) the server decides: 409, and the block explains it and says whom to ask.
+    await userPage.route(
+      (url) => url.pathname === "/api/storage",
+      async (route) => {
+        const res = await route.fetch();
+        await route.fulfill({ response: res, json: { ...((await res.json()) as object), quotaBytes: null } });
+      },
+    );
     const upload = userPage.waitForResponse((r) => /\/api\/notes\/[^/]+\/uploads$/.test(new URL(r.url()).pathname) && r.request().method() === "POST");
     await pasteFakePng(userPage, BIG_FILE_BYTES);
     expect((await upload).status()).toBe(409);
-    await expect(userPage.getByText("Storage is full", { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(userPage.getByText("0 B of 1 MB used. Ask a site admin for more space.", { exact: true })).toBeVisible();
+    await expect(editor.getByText("Storage is full", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(editor.getByText("0 B of 1 MB used. Ask a site admin for more space.", { exact: true })).toBeVisible();
   } finally {
     // Point the user back to the default plan and delete the 1 MB plan (API, not the UI, so cleanup does not depend on screen
     // state). Cleanup **must never throw**: a throw in `finally` would replace the body's original failure and Playwright would

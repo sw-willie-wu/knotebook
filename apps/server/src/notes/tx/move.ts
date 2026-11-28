@@ -9,7 +9,7 @@
  * The comment and read-marker deletes come last, after the note lock, and add no lock edge.
  * No cycle with `lockGroup` paths: none of them locks a personal note after taking the groups lock, and the UPDATE's FK check would take this KEY SHARE anyway (we take it earlier).
  */
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
 import { groupMembers, groupRoles, groups, noteCommentReads, noteComments, noteShares, notes, notifications, uploads } from "../../db/schema.js";
 import { FOLDER_NOT_FOUND_MESSAGE, NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE } from "../../folders/messages.js";
@@ -97,7 +97,9 @@ export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: G
     await resetNoteVersionsInTx(tx, { noteId: input.noteId });
     // Comments follow the same choice (mentions, notified rows and notifications cascade). A post that raced the move committed before the note lock was granted, so it is deleted too.
     // The cascade below does not report which rows it removed, so the owners are read first.
-    clearedNotificationUserIds = (await tx.selectDistinct({ userId: notifications.userId }).from(notifications).where(eq(notifications.noteId, input.noteId))).map(r => r.userId);
+    clearedNotificationUserIds = (
+      await tx.selectDistinct({ userId: notifications.userId }).from(notifications).where(and(eq(notifications.noteId, input.noteId), isNotNull(notifications.commentId)))
+    ).map(r => r.userId);
     await tx.delete(noteComments).where(eq(noteComments.noteId, input.noteId));
     await tx.delete(noteCommentReads).where(eq(noteCommentReads.noteId, input.noteId));
   }

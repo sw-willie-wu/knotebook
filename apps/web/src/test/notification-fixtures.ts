@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { NotificationDto, NotificationListDto, UserDto } from "@knotebook/shared";
+import type { CommentNotificationDto, NotificationDto, NotificationListDto, UploadFinishedNotificationDto, UserDto } from "@knotebook/shared";
 
 export const NOTIFICATION_USER: UserDto = {
   id: "u-alice",
@@ -19,7 +19,7 @@ export function nid(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 }
 
-export function notification(n: number, over: Partial<NotificationDto> = {}): NotificationDto {
+export function notification(n: number, over: Partial<CommentNotificationDto> = {}): CommentNotificationDto {
   return {
     id: nid(n),
     kind: "mention",
@@ -31,6 +31,21 @@ export function notification(n: number, over: Partial<NotificationDto> = {}): No
     noteTitle: `Note ${n}`,
     commentId: nid(100 + n),
     excerpt: `excerpt ${n}`,
+    isNew: false,
+    ...over,
+  };
+}
+
+export function uploadNotification(n: number, over: Partial<UploadFinishedNotificationDto> = {}): UploadFinishedNotificationDto {
+  return {
+    id: nid(n),
+    kind: "upload_finished",
+    createdAt: new Date(Date.UTC(2026, 0, 1, 0, n)).toISOString(),
+    canOpen: true,
+    noteId: NOTIFICATION_NOTE,
+    noteTitle: "Weekly meeting",
+    blockId: "v1",
+    fileName: "meeting-recording.mp4",
     isNew: false,
     ...over,
   };

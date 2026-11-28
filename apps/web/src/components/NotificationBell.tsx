@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSession } from "@/auth/useSession";
 import { notificationCountKey, useNotificationCount } from "@/api/notifications";
-import { NotificationsLazyBoundary } from "@/components/notifications/NotificationsLazyBoundary";
+import { SidebarPanelLazyBoundary } from "@/components/ui/sidebar-panel-lazy-boundary";
 import { ICON_28_HIT } from "@/components/ui/hit-area";
 import { Bell } from "@/components/ui/icons";
 import { useIsPhone } from "@/lib/layout-tiers";
@@ -66,9 +66,9 @@ export function NotificationBell({ placement }: { placement: "sidebar" | "topBar
         )}
       </button>
       {open && (
-        <NotificationsLazyBoundary>
+        <SidebarPanelLazyBoundary chunk="notifications">
           <NotificationsPanel anchorRef={buttonRef} phone={phone} userId={userId} onClose={close} />
-        </NotificationsLazyBoundary>
+        </SidebarPanelLazyBoundary>
       )}
     </>
   );

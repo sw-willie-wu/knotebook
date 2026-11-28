@@ -670,6 +670,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       uploadsDir: deps.uploadsDir,
       groupTestHook: deps.groupTestHook,
       storageLockTimeoutMs,
+      notifications: deps.notifications,
     })
   );
   void app.register(publicRoutes({ db: deps.db, uploadsDir: deps.uploadsDir, limiters: { publicMiss: limiters.publicMiss, publicNote: limiters.publicNote, publicUpload: limiters.publicUpload } }));

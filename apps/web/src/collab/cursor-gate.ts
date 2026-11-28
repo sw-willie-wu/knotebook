@@ -2,7 +2,7 @@ import type { Awareness } from "y-protocols/awareness";
 import { sanitizeRemoteStates } from "./remote-states";
 
 // y-prosemirror yCursorPlugin's default cursorStateField.
-const CURSOR_FIELD = "cursor";
+export const CURSOR_FIELD = "cursor";
 
 /**
  * #293: drops non-null `cursor` writes while read-only. BlockNote 0.52.1 always gives `.ProseMirror` `tabIndex="0"`, and the y-prosemirror cursor plugin writes `cursor` on `focusin` and every view update

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { blocksToYDoc } from "@blocknote/core/yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { P, row } from "@/test/columns-fixtures";
+import { safeMediaUrl } from "@/lib/media-url";
+import { publicMediaUrl } from "@/lib/public-media-url";
 import { resetCodeHighlightForTests } from "./code-highlight";
 import { createExportEditor, renderDeck, type RenderedSection } from "./render";
 import type { PostprocessContext, WikilinkResolution } from "./postprocess";
@@ -142,6 +144,34 @@ describe("renderDeck: member vs public pages", () => {
     expect(host.querySelector("audio")!.hasAttribute("controls")).toBe(true);
     expect(host.querySelector('input[type="checkbox"]')!.hasAttribute("disabled")).toBe(true);
     expect(host.querySelector(".kn-present-table")!.hasAttribute("data-prevent-swipe")).toBe(true);
+  });
+
+  it.each([
+    ["member", { ...memberCtx(), resolveMedia: (url: string) => safeMediaUrl(url) }, "/api/uploads"],
+    ["public", { resolveMedia: publicMediaUrl({ kind: "token", token: "TOKEN" }), wikilinks: { kind: "public" } } as PostprocessContext, "/api/public/notes/TOKEN/uploads"],
+  ])("%s presentation: uploaded audio and video play with controls, a file block is a working link (new tab, no download attribute)", (_label, ctx, base) => {
+    const host = slideHost(
+      deck(
+        [
+          { type: "audio", props: { url: "/api/uploads/a1", name: "talk.m4a" } },
+          { type: "video", props: { url: "/api/uploads/v1", name: "clip.mp4" } },
+          { type: "file", props: { url: "/api/uploads/f1", name: "quote.pdf" } },
+        ],
+        "T",
+        ctx,
+      ),
+      0,
+    );
+    expect(host.querySelector("audio")!.getAttribute("src")).toBe(`${base}/a1`);
+    expect(host.querySelector("audio")!.hasAttribute("controls")).toBe(true);
+    expect(host.querySelector("video")!.getAttribute("src")).toBe(`${base}/v1`);
+    expect(host.querySelector("video")!.hasAttribute("controls")).toBe(true);
+    const link = host.querySelector("a")!;
+    expect(link.getAttribute("href")).toBe(`${base}/f1`);
+    expect(link.textContent).toBe("quote.pdf");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.hasAttribute("download")).toBe(false);
+    expect(host.innerHTML).not.toContain("blob:");
   });
 
   it("signed-in wikilink three states (the not-ready href is built with encodeURIComponent)", () => {

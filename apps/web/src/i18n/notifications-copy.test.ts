@@ -53,7 +53,7 @@ describe("notifications lazy bundle", () => {
     }
     for (const path of [
       "src/components/NotificationBell.tsx",
-      "src/components/notifications/NotificationsLazyBoundary.tsx",
+      "src/components/ui/sidebar-panel-lazy-boundary.tsx",
       "src/components/AppShell.tsx",
       "src/components/UserMenu.tsx",
       "src/lib/notification-live.ts",

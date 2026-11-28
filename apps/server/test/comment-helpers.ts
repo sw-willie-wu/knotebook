@@ -94,7 +94,7 @@ export interface NotificationRow {
   userId: string;
   agentLabel: string | null;
   kind: string;
-  commentId: string;
+  commentId: string | null;
   actorId: string;
   actorAgentLabel: string | null;
 }
