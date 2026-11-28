@@ -85,7 +85,7 @@ export const createTransferTokenOutput = {
  * burned. server_busy burns the token. */
 export const UPLOAD_NEXT =
   "The reply is JSON `{id, url, mime, kind}`, where `kind` is `image`, `audio`, `video` or `file`. Put an image (PNG, JPEG, GIF, WebP or SVG) in the note with " +
-  "edit_note using markdown `![description](url)` and any other kind as a link `[name](url)`, with `url` exactly as returned " +
+  "edit_note using markdown `![description](url)`, audio as `<audio src=\"url\" data-name=\"name\"></audio>`, video as `<video src=\"url\" data-name=\"name\"></video>` and any other file as `<embed src=\"url\" data-name=\"name\">`, with `url` exactly as returned " +
   "(`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
   "means the token can't be used (expired, already used, or revoked) — ask for a new one. A 403 or 429 doesn't use the " +
   "token up (after a 429, wait a moment and retry), unless the 403 is for a role lost while the file was uploading; a 404 means the note is gone or you can no longer see it, and one that comes while the file is uploading comes after the token was used up. " +

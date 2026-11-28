@@ -75,7 +75,7 @@ export async function classifyUploadHead(head: Uint8Array, fileName: string | nu
     // Any other detected format falls through: plain text can start with another format's signature ("BM", "SQLite", "MZ"). The text rule below still refuses a NUL, and the stored mime is always one of the three text mimes.
   }
 
-  // SVG markup counts as SVG only under a `.svg` name; in any other file it is text, which is never served as markup.
+  // SVG markup counts as SVG only under a `.svg` name; under a text extension (`.txt`, `.xml`, …) it is stored as text, which is never served as markup, and under any other name it is refused.
   if (ext === "svg") return head.includes(0) ? null : { category: "image", mime: "image/svg+xml", whole: "svg" };
 
   if (!UPLOAD_TEXT_EXTENSIONS.includes(ext)) return null;

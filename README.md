@@ -67,6 +67,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 - **Real-time co-editing**: everyone on a note edits at once (Yjs and Hocuspocus) and sees the other editors' cursors; the note header shows who else has it open, and clicking someone's avatar goes to their cursor.
 - **Links between notes**: type `[[`, or paste or drag in a note's address; links follow renames, can point at a single paragraph, and each note lists the notes that mention it.
 - **Images and diagrams**: PNG, JPEG, GIF, WebP and SVG images you can resize, counted toward the storage plan of the note's space; Mermaid diagrams stored as their source text ([Diagrams](docs/diagrams.md)); both zoom full screen.
+- **Audio, video and documents**: upload MP3, M4A, Ogg, WAV and FLAC audio, MP4, WebM, Ogg and MOV video, PDF, Office and OpenDocument files and text files as attachments; agents read and write them as `<audio>`, `<video>` and `<embed>` ([AI editing](docs/ai-editing.md#audio-video-and-files)).
 - **Side-by-side columns**: rows of two to four columns, made with `/grid` or by dragging a block beside another, resized by dragging the divider ([Side-by-side columns](docs/columns.md)).
 - **Heading outline**: a thin line on the right of a note with one tick per heading (H1 to H3); hover or tap it to see the headings and jump to one. On a wide enough window it can be pinned open beside a Standard-width note; on a phone or a window narrower than 768 px, a bubble shows where you are while you scroll and opens the list, and so does **Heading outline** in the note's `⋮` menu.
 - **Knowledge info**: a heading can carry when to read it, a one-line conclusion, its basis, when it was last verified and whether it is verified, needs review or outdated, shown as a small status icon after the heading (a site admin chooses which of these fields are used), with an index of it for each folder and space ([Knowledge info](docs/knowledge.md), [the index](docs/knowledge.md#the-index)).
@@ -78,7 +79,7 @@ Each part below lists what works today and what is planned. Planned items are wh
 
 **Planned**
 
-- Attaching audio, video and documents, not only images ([#249](https://github.com/sw-willie-wu/knotebook/issues/249)); a reference library that AI can cite ([#71](https://github.com/sw-willie-wu/knotebook/issues/71)).
+- A reference library that AI can cite ([#71](https://github.com/sw-willie-wu/knotebook/issues/71)).
 - Importing an Obsidian vault, a Notion export or Markdown files, with `[[links]]` turned into links between notes.
 
 ### Let agents work on the same notes

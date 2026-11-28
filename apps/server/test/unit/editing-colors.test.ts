@@ -361,9 +361,9 @@ describe("read: blocksToNoteMarkdown", () => {
     await withSession(ed => expect(parseMarkdownForNote(ed, md, notes, ORIGIN)).not.toHaveProperty("error"));
   });
 
-  it("a file block's background color is not emitted (it is exported as a link anyway, and HTML can't restore a file block)", async () => {
+  it("a file block's background color is not emitted (its read form has no color attribute)", async () => {
     const doc = await docWith([{ type: "file", props: { url: "http://localhost/api/uploads/x.pdf", backgroundColor: "red", name: "f" } }]);
-    await withSession(ed => expect(blocksToNoteMarkdown(ed, ed.document)).toBe(ed.blocksToMarkdownLossy(ed.document)), doc);
+    await withSession(ed => expect(blocksToNoteMarkdown(ed, ed.document)).toBe('<embed src="http://localhost/api/uploads/x.pdf" data-name="f">\n'), doc);
   });
 
   it("inline colors inside list items, headings, and uncolored table cells stay in markdown", async () => {

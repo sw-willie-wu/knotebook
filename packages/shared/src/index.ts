@@ -24,6 +24,7 @@ export * from "./note-sections.js";
 export * from "./note-markdown.js";
 export * from "./note-colors.js";
 export * from "./note-markdown-read.js";
+export * from "./note-media-html.js";
 export * from "./note-sizes.js";
 export * from "./note-markdown-write.js";
 export * from "./note-markdown-guards.js";

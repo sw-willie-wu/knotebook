@@ -6,6 +6,7 @@ import {
   UPLOAD_TYPES,
   withGuardedExternalHTML,
   withKnowledgeProps,
+  withMediaHtmlParse,
   withoutKnowledgeInExternalHTML,
   type UploadKind,
 } from "@knotebook/shared";
@@ -65,10 +66,10 @@ export const noteSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     heading: withoutKnowledgeInExternalHTML(withKnowledgeProps(defaultBlockSpecs.heading)),
-    audio: withUploadStatus(withFileBlockAccept(withGuardedExternalHTML(defaultBlockSpecs.audio, window.location.href), acceptedFor("audio"))),
-    file: withUploadStatus(withFileBlockAccept(withGuardedExternalHTML(defaultBlockSpecs.file, window.location.href), acceptedFor("file"))),
+    audio: withUploadStatus(withFileBlockAccept(withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.audio, window.location.href)), acceptedFor("audio"))),
+    file: withUploadStatus(withFileBlockAccept(withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.file, window.location.href)), acceptedFor("file"))),
     image: withUploadStatus(withGuardedExternalHTML(defaultBlockSpecs.image, window.location.href)),
-    video: withUploadStatus(withFileBlockAccept(withGuardedExternalHTML(defaultBlockSpecs.video, window.location.href), acceptedFor("video"))),
+    video: withUploadStatus(withFileBlockAccept(withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.video, window.location.href)), acceptedFor("video"))),
     // `createReactBlockSpec` returns a factory (unlike `createReactInlineContentSpec`), so the call parentheses are required.
     mermaid: mermaidSpec(),
     // #96: `defaultBlockSpecs.codeBlock` is created with no options (no languages, no highlighter);

@@ -9,6 +9,7 @@ import {
 } from "@blocknote/core";
 import { columnBlockSpec, columnListBlockSpec } from "./columns.js";
 import { withKnowledgeProps, withoutKnowledgeInExternalHTML } from "./knowledge-schema.js";
+import { withMediaHtmlParse } from "./note-media-html.js";
 import { normalizeAnchor, wikilinkHref, wikilinkVisibleText } from "./site-link.js";
 
 export const MERMAID_LANGUAGE = "mermaid";
@@ -108,10 +109,10 @@ export function createHeadlessNoteSchema(base: string) {
     blockSpecs: {
       ...defaultBlockSpecs,
       heading: withoutKnowledgeInExternalHTML(withKnowledgeProps(defaultBlockSpecs.heading)),
-      audio: withGuardedExternalHTML(defaultBlockSpecs.audio, base),
-      file: withGuardedExternalHTML(defaultBlockSpecs.file, base),
+      audio: withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.audio, base)),
+      file: withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.file, base)),
       image: withGuardedExternalHTML(defaultBlockSpecs.image, base),
-      video: withGuardedExternalHTML(defaultBlockSpecs.video, base),
+      video: withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.video, base)),
       mermaid: mermaidSpec,
       codeBlock: createCodeBlockSpec(CODE_BLOCK_BASE_OPTIONS),
       columnList: columnListBlockSpec,
