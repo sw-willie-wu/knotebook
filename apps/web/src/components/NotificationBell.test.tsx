@@ -12,6 +12,7 @@ import {
   notification,
   notificationPage,
   stubNotificationFetch,
+  uploadNotification,
 } from "@/test/notification-fixtures";
 import { ThemeProvider } from "@/theme";
 import { NotificationBell } from "./NotificationBell";
@@ -25,7 +26,7 @@ const LIST = "/api/notifications?limit=30";
 
 function Where() {
   const loc = useLocation();
-  return <span data-testid="where">{`${loc.pathname}${loc.search}`}</span>;
+  return <span data-testid="where">{`${loc.pathname}${loc.search}${loc.hash}`}</span>;
 }
 
 function renderBell(placement: "sidebar" | "topBar" = "sidebar") {
@@ -191,6 +192,22 @@ describe("NotificationBell", () => {
     const row = await screen.findByTestId("notification");
     fireEvent.click(within(row).getByRole("button", { name: /Bob mentioned you/ }));
     expect(screen.getByTestId("where")).toHaveTextContent(`/notes/${NOTIFICATION_NOTE}?comment=${nid(101)}`);
+    await waitFor(() => expect(screen.queryByTestId("notifications-popover")).toBeNull());
+  });
+
+  it("counts an upload_finished notification, and its row opens the note at the block", async () => {
+    stubNotificationFetch({
+      ...base,
+      [COUNT]: jsonResponse({ count: 1 }),
+      [LIST]: jsonResponse(notificationPage([uploadNotification(1, { isNew: true })])),
+      "POST /api/notifications/seen": jsonResponse(null, 204),
+    });
+    renderBell();
+    expect(await screen.findByTestId("notification-badge")).toHaveTextContent("1");
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    const row = await screen.findByTestId("notification");
+    fireEvent.click(within(row).getByRole("button", { name: /Upload finished: meeting-recording\.mp4 was added to Weekly meeting/ }));
+    expect(screen.getByTestId("where")).toHaveTextContent(`/notes/${NOTIFICATION_NOTE}#b-v1`);
     await waitFor(() => expect(screen.queryByTestId("notifications-popover")).toBeNull());
   });
 

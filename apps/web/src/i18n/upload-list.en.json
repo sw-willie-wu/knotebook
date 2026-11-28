@@ -1,0 +1,19 @@
+{
+  "uploadList": {
+    "title": "Uploads",
+    "uploading_one": "{{count}} uploading",
+    "uploading_other": "{{count}} uploading",
+    "progress": "Uploading {{name}}",
+    "saving": "Saving to the note…",
+    "inNote": "in",
+    "someNote": "a note",
+    "placeGone": "Uploaded, but its place in the note is gone.",
+    "retry": "Retry",
+    "retryLabel": "Retry {{name}}",
+    "retryWait": "Retry in {{seconds}} s",
+    "checking": "Checking…",
+    "dismiss": "Close",
+    "dismissLabel": "Close {{name}}",
+    "back": "Back"
+  }
+}

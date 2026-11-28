@@ -394,7 +394,8 @@ test("E4: presentation chunk/CSS, mermaid, code, overview, fullscreen toggle -> 
   await page.keyboard.press("Enter");
   await editor.pressSequentially("/video");
   await page.getByText("Resizable video with caption").click();
-  // After a slash insert BlockNote opens the file panel by itself; this app's panel has no tab bar for non-image blocks, just the Embed form
+  // After a slash insert BlockNote opens the file panel by itself, on its Upload tab; the URL field is behind the Embed link tab
+  await page.getByRole("tab", { name: "Embed link" }).click();
   await page.getByPlaceholder("Paste a link…").fill(`${ORIGIN}${mediaUrl}`);
   await page.getByRole("button", { name: "Embed", exact: true }).click();
   await expect(editor.locator("video").first()).toBeAttached({ timeout: 10_000 });

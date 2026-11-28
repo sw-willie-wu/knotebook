@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { NOTIFICATIONS_CLOSE_TOO_MANY, NOTIFICATIONS_CLOSE_UNAUTHORIZED, NOTIFICATIONS_SOCKET_PATH } from "@knotebook/shared";
-import { apiTokens, sessions, users } from "../src/db/schema.js";
+import { apiTokens, sessions, uploads, users } from "../src/db/schema.js";
 import { NOTIFICATION_SOCKETS_PER_USER } from "../src/notifications/hub.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { seedGroup, sleep } from "./group-helpers.js";
@@ -258,6 +258,28 @@ describe("notifications socket: delivery", () => {
   });
 });
 
+describe("notifications socket: upload finished", () => {
+  it("tells every open tab of the uploader once, and nobody else; a repeated report sends nothing", async () => {
+    const { ctx, alice, note, aliceSession, bobSession } = await setup();
+    const [upload] = await ctx.db.insert(uploads).values({ noteId: note.id, uploaderId: alice.id, mime: "video/mp4", size: 10, fileName: "clip.mp4" }).returning({ id: uploads.id });
+    const tabOne = connect(ctx, { origin: ctx.baseUrl, cookie: aliceSession.cookie });
+    const tabTwo = connect(ctx, { origin: ctx.baseUrl, cookie: aliceSession.cookie });
+    const forBob = connect(ctx, { origin: ctx.baseUrl, cookie: bobSession.cookie });
+    await Promise.all([tabOne.opened, tabTwo.opened, forBob.opened]);
+    await sleep(100);
+
+    const res = await aliceSession.fetch(`/api/uploads/${upload!.id}/finished`, { method: "POST", body: JSON.stringify({ blockId: "v1" }) });
+    expect(res.status).toBe(204);
+    await until(() => tabOne.messages.length === 1 && tabTwo.messages.length === 1, "both of alice's tabs");
+    expect(JSON.parse(tabTwo.messages[0]!)).toEqual({ type: "notification" });
+
+    expect((await aliceSession.fetch(`/api/uploads/${upload!.id}/finished`, { method: "POST", body: JSON.stringify({ blockId: "v1" }) })).status).toBe(204);
+    await sleep(300);
+    expect(tabOne.messages).toHaveLength(1);
+    expect(forBob.messages).toEqual([]);
+  });
+});
+
 describe("notifications socket: history-clearing move", () => {
   it("tells the user whose notification the move deleted, and only when the history is cleared", async () => {
     for (const keepHistory of [false, true]) {
@@ -278,6 +300,20 @@ describe("notifications socket: history-clearing move", () => {
         expect(JSON.parse(forBob.messages[0]!)).toEqual({ type: "notification" });
       }
     }
+  });
+
+  it("doesn't tell an uploader whose only notification on the note is an upload_finished one, which the move keeps", async () => {
+    const { ctx, alice, note, aliceSession } = await setup();
+    const group = await seedGroup(ctx.db, "Garden", [{ userId: alice.id, role: "admin" }]);
+    const [upload] = await ctx.db.insert(uploads).values({ noteId: note.id, uploaderId: alice.id, mime: "video/mp4", size: 10 }).returning({ id: uploads.id });
+    expect((await aliceSession.fetch(`/api/uploads/${upload!.id}/finished`, { method: "POST", body: JSON.stringify({ blockId: "v1" }) })).status).toBe(204);
+    const forAlice = connect(ctx, { origin: ctx.baseUrl, cookie: aliceSession.cookie });
+    await forAlice.opened;
+    await sleep(100);
+
+    expect((await aliceSession.fetch(`/api/notes/${note.id}/move`, { method: "POST", body: JSON.stringify({ groupId: group.id }) })).status).toBe(200);
+    await sleep(400);
+    expect(forAlice.messages).toEqual([]);
   });
 });
 

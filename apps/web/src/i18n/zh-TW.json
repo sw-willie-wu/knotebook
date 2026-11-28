@@ -218,7 +218,6 @@
     "lastEditedDeletedUser": "已刪除的帳號",
     "transferDataUrl": "不支援直接貼上內嵌圖片，請改用拖曳圖片檔案。",
     "transferSaveFirst": "無法直接插入此項目，請先另存為檔案再拖曳進來。",
-    "transferNonImage": "這裡目前只能插入圖片檔案。",
     "wikilinkBroken": "已連結的筆記不存在。",
     "outline": {
       "label": "標題導覽",
@@ -294,8 +293,7 @@
     "filePanel": {
       "upload": {
         "tabLabel": "上傳",
-        "inputLabel": "選擇要上傳的圖片檔案",
-        "error": "上傳失敗，請再試一次。"
+        "inputLabel": "選擇要上傳的圖片檔案"
       },
       "embed": {
         "tabLabel": "嵌入連結",
@@ -423,6 +421,13 @@
   "notificationBell": {
     "label": "通知",
     "unread": "通知，{{count}} 則未讀"
+  },
+  "uploadIndicator": {
+    "active_one": "上傳中 {{count}} 個，{{percent}}%",
+    "active_other": "上傳中 {{count}} 個，{{percent}}%",
+    "attention_one": "{{count}} 個上傳需要處理",
+    "attention_other": "{{count}} 個上傳需要處理",
+    "both": "{{active}}；{{attention}}"
   },
   "userMenu": {
     "language": "語言",
@@ -857,6 +862,11 @@
     "public_slug_taken": "此公開網址已被你的另一篇筆記使用。",
     "not_loaded": "此筆記目前尚未就緒，請稍後再試。",
     "file_too_large": "檔案過大，無法上傳。",
+    "upload_interrupted": "上傳中斷了。請檢查網路後再試一次。",
+    "upload_write_rejected": "檔案已上傳，但你已無法編輯這篇筆記。",
+    "upload_write_outdated": "檔案已上傳，但這個頁面已過期。請重新整理頁面後再加入檔案。",
+    "upload_write_deleted": "檔案已上傳，但這篇筆記已被刪除。",
+    "upload_session_unconfirmed": "無法確認你的登入狀態，請再試一次。",
     "ai_not_configured": "尚未設定 AI",
     "provider_unavailable": "AI provider 無法使用——請管理員重新輸入 API key",
     "upstream_error": "AI 服務回傳錯誤",

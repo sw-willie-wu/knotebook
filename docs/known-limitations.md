@@ -411,7 +411,6 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [External images embedded by URL are hotlinked, not proxied.](./known-limitations/uploads.md)
 - [Uploads have no CSRF check when the request carries no `Origin` header.](./known-limitations/uploads.md)
 - [Revoked upload access can still be served from a browser's cache.](./known-limitations/uploads.md)
-- [The editor's file panel still uploads only images; the other kinds go in through the API or MCP.](./known-limitations/uploads.md)
 - [Uploaded SVG files are stored as-is and rely on `<img>` and CSP sandboxing rather than server-side stripping.](./known-limitations/uploads.md)
 - [Copying a note doesn't rewrite every link to its attachments.](./known-limitations/uploads.md)
 - [Copying a note with many attachments doubles their disk usage.](./known-limitations/uploads.md)
@@ -423,6 +422,13 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [A restart in the middle of an upload leaves a temporary file until the next start.](./known-limitations/uploads.md)
 - [A crash in the middle of copying a note can leave a stray attachment file.](./known-limitations/uploads.md)
 - [An audio, video or file attachment written as a plain link isn't copied with the note and can't be opened from a public page.](./known-limitations/uploads.md)
+- [An upload that finishes while its note is open in a background browser tab leaves no notification.](./known-limitations/uploads.md)
+- [Closing or reloading the tab stops its uploads.](./known-limitations/uploads.md)
+- [A file that was uploaded but is no longer placed stays until its note is permanently deleted.](./known-limitations/uploads.md)
+- [Starting an upload doesn't check who is signed in.](./known-limitations/uploads.md)
+- [A reverse proxy whose body limit is below the site's upload limit can make a refusal look like a network error.](./known-limitations/uploads.md)
+- [Two file picks for the same block within one pre-check window both upload.](./known-limitations/uploads.md)
+- [An editor that re-attaches soon after a reconnect may not see other people's presence until their next renewal.](./known-limitations/uploads.md)
 
 ## Sharing and groups
 

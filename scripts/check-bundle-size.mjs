@@ -44,6 +44,12 @@ export const HELP_I18N_MARKER = 'whatsNew';
 export const MOBILE_TOOLBAR_I18N_MARKER = 'hideKeyboard';
 // comment-toolbar.*.json top-level key: the selection toolbars' string pack must stay in the NotePage chain.
 export const COMMENT_TOOLBAR_I18N_MARKER = 'commentToolbar';
+// upload-precheck.*.json top-level key: the pre-check copy is read only from the note chunk (`uploads/precheck.ts`).
+export const UPLOAD_PRECHECK_I18N_MARKER = 'uploadPrecheck';
+// An uploadBlock.* key that lives only in upload-block.en.json: the upload states drawn in note blocks and the file panel.
+export const UPLOAD_BLOCK_I18N_MARKER = 'startsOver';
+// Packs read by the note page's own modules: they must be reachable from the NotePage chunk, or its blocks render raw keys.
+export const NOTEPAGE_STRING_MARKERS = [UPLOAD_PRECHECK_I18N_MARKER, UPLOAD_BLOCK_I18N_MARKER];
 // Presence only catches the whole group merging back or a rename; TOUR_I18N_MARKER catches a static import of a single tour module or the string pack.
 export const TOURLAZY_RE = /^TourLazy-[A-Za-z0-9_-]+\.js$/;
 // Chosen over keys like next/back, which already appear in entry.
@@ -62,6 +68,14 @@ export const NOTIFICATIONSLAZY_RE = /^NotificationsLazy-[A-Za-z0-9_-]+\.js$/;
 // A notifications.* key that lives only in notifications.en.json: in entry or NotePage means notifications-strings is statically imported there,
 // and it must stay reachable from the NotificationsLazy chunk or the list would render raw keys.
 export const NOTIFICATIONS_I18N_MARKER = 'cantOpen';
+// Presence only catches the whole group merging back or a rename; UPLOAD_LIST_I18N_MARKER catches a static import of the list or its strings.
+export const UPLOADSLAZY_RE = /^UploadsLazy-[A-Za-z0-9_-]+\.js$/;
+// An uploadList.* key that lives only in upload-list.en.json: in entry or NotePage means upload-list-strings is statically imported there,
+// and it must stay reachable from the UploadsLazy chunk or the list would render raw keys.
+export const UPLOAD_LIST_I18N_MARKER = 'placeGone';
+// A string literal only `uploads/upload-runner.ts` has. The runner brings the collab connection and BlockNote's schema with it,
+// so the indicator in the entry reaches it with `import()` only.
+export const UPLOAD_RUNNER_MARKER = 'Signed out';
 // Presence only catches the whole group merging back or a rename. The marker is the match rows' data-testid literal
 // (unlike i18n copy it is stable; only BodySearchResults.tsx may use it).
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;
@@ -330,6 +344,18 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
         `被首包靜態 import；手機編輯工具列只能放在 NotePage chunk`
     );
   }
+  if (entrySource.includes(UPLOAD_PRECHECK_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含上傳預檢文案字串包的鍵名 ${UPLOAD_PRECHECK_I18N_MARKER}——\`@/i18n/upload-precheck-strings\`（或 import 它的預檢模組）` +
+        `被首包靜態 import；上傳預檢只能放在 NotePage chunk`
+    );
+  }
+  if (entrySource.includes(UPLOAD_BLOCK_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含上傳區塊字串包的鍵名 ${UPLOAD_BLOCK_I18N_MARKER}——\`@/i18n/upload-block-strings\`（或 import 它的區塊／檔案面板模組）` +
+        `被首包靜態 import；上傳區塊只能放在 NotePage chunk`
+    );
+  }
   if (entrySource.includes(COMMENT_TOOLBAR_I18N_MARKER)) {
     throw new Error(
       `entry chunk ${entryName} 含選取工具列留言按鈕字串包的鍵名 ${COMMENT_TOOLBAR_I18N_MARKER}——\`@/i18n/comment-toolbar-strings\`（或 import 它的工具列模組）` +
@@ -382,6 +408,36 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     throw new Error(
       `通知清單的 chunk [${notificationsChunks.join(', ')}] 與它靜態 import 的 chunk 都不含鍵名 ${NOTIFICATIONS_I18N_MARKER}——通知字串包沒跟著清單載入` +
         `（或鍵改名了，請同步更新 NOTIFICATIONS_I18N_MARKER）`
+    );
+  }
+
+  if (readFileSync(join(assetsDir, entryName), 'utf8').includes(UPLOAD_RUNNER_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含上傳執行模組的字串 ${JSON.stringify(UPLOAD_RUNNER_MARKER)}——\`@/uploads/upload-runner\` 被首包靜態 import；` +
+        `上傳指示只能用 import() 取用它（它帶著協作連線與 BlockNote schema）`
+    );
+  }
+  const uploadsChunks = names.filter(name => UPLOADSLAZY_RE.test(name));
+  if (uploadsChunks.length === 0) {
+    throw new Error(
+      `找不到上傳清單的 lazy chunk（UploadsLazy-<hash>.js）——最可能的原因是上傳清單被 ` +
+        `\`lazy(() => import("@/components/uploads/UploadsLazy"))\` 以外的地方靜態 import、整組併回 entry；` +
+        `若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+  for (const name of [entryName, ...notePageChunks]) {
+    if (readFileSync(join(assetsDir, name), 'utf8').includes(UPLOAD_LIST_I18N_MARKER)) {
+      throw new Error(
+        `${name} 含上傳清單字串包的鍵名 ${UPLOAD_LIST_I18N_MARKER}——\`@/i18n/upload-list-strings\`（或 import 它的上傳清單模組）被靜態 import；` +
+          `上傳清單與字串包只能經 UploadsLazy 載入`
+      );
+    }
+  }
+  const uploadsReach = uploadsChunks.flatMap(chunk => [...staticImportClosure(assetsDir, chunk)]);
+  if (!uploadsReach.some(name => readFileSync(join(assetsDir, name), 'utf8').includes(UPLOAD_LIST_I18N_MARKER))) {
+    throw new Error(
+      `上傳清單的 chunk [${uploadsChunks.join(', ')}] 與它靜態 import 的 chunk 都不含鍵名 ${UPLOAD_LIST_I18N_MARKER}——上傳清單字串包沒跟著清單載入` +
+        `（或鍵改名了，請同步更新 UPLOAD_LIST_I18N_MARKER）`
     );
   }
 
@@ -493,13 +549,28 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, commentsChunks, notificationsChunks, avatarEncodeChunks, groupDialogChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, shortcutsChunks, tourChunks, managementChunks, bodySearchChunks, commentsChunks, notificationsChunks, uploadsChunks, avatarEncodeChunks, groupDialogChunks };
+}
+
+// Separate from checkBundleSize: its fixtures stand in for NotePage with a bare chunk.
+export function checkNotePageStringPacks(assetsDir, notePageChunks) {
+  const reach = notePageChunks.flatMap(chunk => [...staticImportClosure(assetsDir, chunk)]);
+  const sources = reach.map(name => readFileSync(join(assetsDir, name), 'utf8'));
+  for (const marker of NOTEPAGE_STRING_MARKERS) {
+    if (!sources.some(source => source.includes(marker))) {
+      throw new Error(
+        `NotePage 的 chunk [${notePageChunks.join(', ')}] 與它靜態 import 的 chunk 都不含鍵名 ${marker}——筆記頁用到的字串包沒跟著載入` +
+          `（或鍵改名了，請同步更新 NOTEPAGE_STRING_MARKERS）`
+      );
+    }
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const assetsDir = join(process.cwd(), 'apps', 'web', 'dist', 'assets');
   try {
     const result = checkBundleSize(assetsDir);
+    checkNotePageStringPacks(assetsDir, result.notePageChunks);
     console.log(
       `bundle OK：entry ${result.entryName} = ${result.entryBytes} bytes（上限 ${MAX_ENTRY_BYTES}）；` +
         `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}、` +
@@ -512,6 +583,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `${result.bodySearchChunks.join(', ')}（entry 不含 ${BODY_SEARCH_MARKER}）、` +
         `${result.commentsChunks.join(', ')}（entry 與 NotePage 不含 ${COMMENTS_I18N_MARKER}）、` +
         `${result.notificationsChunks.join(', ')}（entry 與 NotePage 不含 ${NOTIFICATIONS_I18N_MARKER}）、` +
+        `${result.uploadsChunks.join(', ')}（entry 與 NotePage 不含 ${UPLOAD_LIST_I18N_MARKER}；entry 不含 ${JSON.stringify(UPLOAD_RUNNER_MARKER)}）、` +
+        `NotePage 帶著 ${NOTEPAGE_STRING_MARKERS.join('、')}（entry 不含）、` +
         GROUP_LAZY_DIALOGS.map(d => `${result.groupDialogChunks[d.name].join(', ')}（entry 不含 ${d.marker}）、`).join('') +
         `${result.avatarEncodeChunks.join(', ')}（${AVATAR_IMAGE_MARKER} 只在這個 chunk，entry 與其他 chunk 都不含）`
     );

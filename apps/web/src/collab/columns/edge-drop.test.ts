@@ -660,7 +660,7 @@ describe("horizontal-line drop into an empty column replaces the empty paragraph
     const m = mount(emptyContent());
     const s = spies();
     mockRects(intoEmpty.boxes);
-    const file = new File(["x"], "a.txt", { type: "text/plain" });
+    const file = new File(["x"], "a.zip", { type: "application/zip" });
     drop(m, textIn(m, "e1"), intoEmpty.at, {
       types: ["Files"],
       files: [file],

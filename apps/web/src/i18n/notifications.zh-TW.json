@@ -20,6 +20,9 @@
     "clearBody": "你的 agent 的通知也會一併清除。",
     "clearConfirm": "清除",
     "clearFailed": "無法清除通知。",
-    "cancel": "取消"
+    "cancel": "取消",
+    "uploadFinished": "上傳完成",
+    "uploadAdded": "：{{file}} 已加入「{{note}}」",
+    "uploadAddedNoNote": "：{{file}}"
   }
 }

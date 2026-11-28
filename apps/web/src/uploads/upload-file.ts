@@ -1,85 +1,66 @@
-import { api, ApiFail } from "@/api/client";
-import { removeBlocksKeepColumns } from "@/collab/columns/keep-columns";
+import { ApiFail } from "@/api/client";
+import { isNoteOnScreen } from "@/collab/note-connection";
 import { toast } from "@/components/ui/toast";
 import { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";
 import { uploadErrorKey } from "@/lib/upload-error-text";
-import type { EditorRef } from "@/components/wikilink/menu";
-
-/**
- * May reject; createUploadFile wraps it. An oversize file fails before sending, with the same 413 code the server
- * uses, so callers needn't tell the two apart.
- */
-export async function postUpload(
-  noteId: string,
-  file: File,
-  maxBytes?: number,
-): Promise<{ id: string; url: string }> {
-  if (maxBytes !== undefined && file.size > maxBytes) {
-    throw new ApiFail(413, "file_too_large", "client-side precheck");
-  }
-  const fd = new FormData();
-  fd.append("file", file);
-  return api<{ id: string; url: string }>(`/api/notes/${encodeURIComponent(noteId)}/uploads`, {
-    method: "POST",
-    body: fd,
-  });
-}
+import type { PrecheckCtx } from "./precheck";
+import { getUploadItems, subscribeUploads } from "./upload-queue-store";
+import { startUpload } from "./upload-runner";
 
 export { storageQuotaDescription, type Translate } from "@/lib/storage-quota-text";
 
 const TOAST_DEDUPE_WINDOW_MS = 5000;
 const lastToastAtByKey = new Map<string, number>();
 
-function toastOncePerCode(err: unknown, translate: Translate, file: File): void {
-  const code = err instanceof ApiFail ? err.code : "internal";
+function toastOncePerCode(err: ApiFail, translate: Translate, file: File): void {
   // Keyed by the text shown, so an SVG-specific 415 doesn't swallow a generic 415 that follows.
-  const textKey = uploadErrorKey(err, file) ?? `errors.${code}`;
+  const textKey = uploadErrorKey(err, file) ?? `errors.${err.code}`;
   const now = Date.now();
   const last = lastToastAtByKey.get(textKey);
   if (last !== undefined && now - last < TOAST_DEDUPE_WINDOW_MS) return;
   lastToastAtByKey.set(textKey, now);
-  if (err instanceof ApiFail && code === "storage_quota_exceeded") {
-    toast({ title: translate(`errors.${code}`), description: storageQuotaDescription(err, translate) });
+  if (err.code === "storage_quota_exceeded") {
+    toast({ title: translate(`errors.${err.code}`), description: storageQuotaDescription(err, translate) });
     return;
   }
   toast({ title: translate(textKey) });
 }
 
+/** The upload runs on after the person leaves the note; the first failure is announced once, unless the note is on screen. */
+function toastWhenItFails(id: string, noteId: string, file: File, translate: Translate): void {
+  const unsubscribe = subscribeUploads(() => {
+    const item = getUploadItems().find((i) => i.id === id);
+    if (item && (item.status === "uploading" || item.status === "writing")) return;
+    unsubscribe();
+    // With the note on screen the block already shows the reason and the retry button.
+    if (item?.status === "failed" && item.error instanceof ApiFail && !isNoteOnScreen(noteId)) toastOncePerCode(item.error, translate, file);
+  });
+}
+
 export interface CreateUploadFileOptions {
   noteId: string;
-  /** Read at failure time: createUploadFile is created before the editor exists. */
-  editorRef: EditorRef;
   translate: Translate;
-  /** Called per upload: the config loads later and admins can change it. `undefined` skips the precheck. */
-  maxUploadBytes?: () => number | undefined;
+  /** Called per upload: limits and room are fetched fresh each time. */
+  precheckCtx: () => Promise<PrecheckCtx>;
 }
 
 /**
- * Never rejects: BlockNote's handleFileInsertion has no catch, so a rejection goes unhandled and stops its loop over
- * the remaining files. On failure it returns "" and removes the placeholder in a macrotask: handleFileInsertion calls
- * updateBlock right after the await resolves, and a microtask would delete the block before that update.
+ * Resolves at once, without waiting for the pre-check: BlockNote awaits each file of a drop in turn, so waiting would run
+ * the checks one after another instead of sharing one. Never rejects either: handleFileInsertion has no catch, and a
+ * rejection would stop its loop over the remaining files. The queue writes the URL into the block later, and the block
+ * shows progress, a refusal or a failure, so nothing is removed here.
  */
-export function createUploadFile(
-  opts: CreateUploadFileOptions,
-): (file: File, blockId?: string) => Promise<string> {
-  const { noteId, editorRef, translate, maxUploadBytes } = opts;
+export function createUploadFile(opts: CreateUploadFileOptions): (file: File, blockId?: string) => Promise<{ props: { name: string } }> {
+  const { noteId, translate, precheckCtx } = opts;
   return async (file, blockId) => {
-    try {
-      const { url } = await postUpload(noteId, file, maxUploadBytes?.());
-      return url;
-    } catch (err) {
-      toastOncePerCode(err, translate, file);
-      setTimeout(() => {
-        try {
-          const ed = editorRef.current;
-          if (blockId && ed && ed.getBlock(blockId)) {
-            removeBlocksKeepColumns(ed, [blockId]);
-          }
-        } catch {
-          // Block or editor already gone; cleanup must not throw into the caller.
-        }
-      }, 0);
-      return "";
+    if (blockId !== undefined) {
+      void startUpload({ noteId, blockId, file, expectedUrl: "", precheckCtx }).then(
+        (started) => {
+          if (started.ok) toastWhenItFails(started.id, noteId, file, translate);
+        },
+        () => {},
+      );
     }
+    return { props: { name: file.name } };
   };
 }

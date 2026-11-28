@@ -130,7 +130,7 @@ export interface CommentUnreadCountDto {
   count: number;
 }
 
-export interface NotificationDto {
+export interface CommentNotificationDto {
   id: string;
   kind: "mention" | "reply";
   /** Null = addressed to the person; set = to that person's agent with this label. */
@@ -145,6 +145,22 @@ export interface NotificationDto {
   excerpt: string | null;
   isNew: boolean;
 }
+
+/** Always the caller's own upload. */
+export interface UploadFinishedNotificationDto {
+  id: string;
+  kind: "upload_finished";
+  createdAt: string;
+  /** False when the caller can no longer read the note: then `noteId`, `noteTitle` and `blockId` are null too. */
+  canOpen: boolean;
+  noteId: string | null;
+  noteTitle: string | null;
+  blockId: string | null;
+  fileName: string;
+  isNew: boolean;
+}
+
+export type NotificationDto = CommentNotificationDto | UploadFinishedNotificationDto;
 
 export interface NotificationListDto {
   notifications: NotificationDto[];

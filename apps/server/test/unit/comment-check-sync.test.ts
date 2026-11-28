@@ -1,19 +1,19 @@
 /**
- * The body and quote CHECKs use the shared length caps, and the latest migration that writes each says the same as schema.ts,
- * so changing a cap or the schema without regenerating the migration fails here.
+ * The body and quote CHECKs use the shared length caps, the notification block id CHECK uses the shared anchor pattern, and the latest
+ * migration that writes each says the same as schema.ts, so changing a cap or the schema without regenerating the migration fails here.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { COMMENT_BODY_MAX, COMMENT_QUOTE_MAX } from "@knotebook/shared";
-import { noteComments } from "../../src/db/schema.js";
+import { BLOCK_ANCHOR_RE, COMMENT_BODY_MAX, COMMENT_QUOTE_MAX } from "@knotebook/shared";
+import { noteComments, notifications } from "../../src/db/schema.js";
 
 const drizzleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../drizzle");
 
-function schemaCheckSql(name: string): string {
-  const check = getTableConfig(noteComments).checks.find(c => c.name === name);
+function schemaCheckSql(name: string, table: typeof noteComments | typeof notifications = noteComments): string {
+  const check = getTableConfig(table).checks.find(c => c.name === name);
   expect(check, `${name} is declared`).toBeDefined();
   return new PgDialect().sqlToQuery(check!.value).sql;
 }
@@ -50,5 +50,17 @@ describe("comment length CHECKs match the shared caps", () => {
 
   it.each(["note_comments_body_chk", "note_comments_quote_chk"])("the latest migration that writes %s has the same expression as schema.ts", name => {
     expect(migrationCheckSql(name)).toBe(schemaCheckSql(name));
+  });
+});
+
+describe("notification block id CHECK matches the shared anchor pattern", () => {
+  it("notifications_block_id_chk allows null or BLOCK_ANCHOR_RE", () => {
+    expect(schemaCheckSql("notifications_block_id_chk", notifications)).toBe(
+      `"notifications"."block_id" is null or "notifications"."block_id" ~ '${BLOCK_ANCHOR_RE.source}'`,
+    );
+  });
+
+  it("the latest migration that writes it has the same expression as schema.ts", () => {
+    expect(migrationCheckSql("notifications_block_id_chk")).toBe(schemaCheckSql("notifications_block_id_chk", notifications));
   });
 });
