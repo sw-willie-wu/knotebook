@@ -29,6 +29,24 @@ const COLS = { ok: false, error: "unsupported_columns" } as const;
 const SIZE = { ok: false, error: "unsupported_size" } as const;
 const tableMd = (row1: string, row2: string) => `<table><tr>${row1}</tr><tr>${row2}</tr></table>\n`;
 
+describe("media elements", () => {
+  it.each([
+    ['<embed src="/api/uploads/a" onload="x()">', "embed"],
+    ['<video src="/api/uploads/a" onloadstart="x()"></video>', "video"],
+    ['<figure><audio src="/api/uploads/a" onplay="x()"></audio><figcaption>c</figcaption></figure>', "audio in a figure"],
+  ])("%s (%s) is refused like any other event-handler attribute", md => {
+    expect(chk(md)).toEqual({ ok: false, error: "unsupported_block" });
+  });
+
+  it("the canonical read forms are accepted", () => {
+    for (const md of [
+      '<audio src="/api/uploads/a" data-name="a.mp3"></audio>',
+      '<figure><video src="/api/uploads/a" data-name="v.mp4" width="320"></video><figcaption>c</figcaption></figure>',
+      '<embed src="/api/uploads/a" data-name="a.pdf">',
+    ]) expect(chk(md).ok, md).toBe(true);
+  });
+});
+
 describe("accepted", () => {
   it("a row as read out -> ok, html is markdownToHTML of the unmarked original", () => {
     expect(ROW2.startsWith(`${OUTER_LINE}\n${FIRST_COL_LINE}\n`)).toBe(true);
@@ -343,6 +361,14 @@ describe("structure check findStructureError", () => {
 
   it.each([31, 4001, 300.5])("image previewWidth %s -> size", w => {
     expect(findStructureError([IMG(w)], "top")).toBe("unsupported_size");
+  });
+
+  it.each([31, 4001, 300.5])("video previewWidth %s -> size, same rule as an image", w => {
+    expect(findStructureError([{ type: "video", props: { url: "/x", previewWidth: w } }], "top")).toBe("unsupported_size");
+  });
+
+  it("video previewWidth 300 or none -> null", () => {
+    expect(findStructureError([{ type: "video", props: { url: "/x", previewWidth: 300 } }, { type: "video", props: { url: "/x" } }], "top")).toBeNull();
   });
 
   it("table columnWidths [10] -> size", () => {

@@ -534,6 +534,31 @@ describe("#106 parity: headless schema and noteSchema exports are byte-identical
   });
 });
 
+describe("media read forms parse the same in noteSchema and the headless schema", () => {
+  type Blk = { type: string; props: Record<string, unknown> };
+  const parseWith = (schema: typeof noteSchema | ReturnType<typeof createHeadlessNoteSchema>, html: string) =>
+    ((BlockNoteEditor.create({ schema }) as AnyEditor).tryParseHTMLToBlocks(html) as Blk[]).map((b) => ({ type: b.type, props: b.props }));
+  const U = "/api/uploads/00000000-0000-4000-8000-000000000001";
+  const CASES: Array<[string, string, Record<string, unknown>]> = [
+    ["audio with a name", `<audio src="${U}" data-name="a.mp3"></audio>`, { name: "a.mp3" }],
+    ["audio with preview off, captioned", `<figure><audio src="${U}" data-name="a.mp3" data-show-preview="false"></audio><figcaption>c</figcaption></figure>`, { name: "a.mp3", showPreview: false, caption: "c" }],
+    ["video with a name, width and preview off", `<video src="${U}" data-name="v.mp4" data-show-preview="false" width="320"></video>`, { name: "v.mp4", showPreview: false, previewWidth: 320 }],
+    ["file with a name", `<embed src="${U}" data-name="a.pdf">`, { name: "a.pdf" }],
+    ["captioned file with a name", `<figure><embed src="${U}" data-name="a.pdf"><figcaption>c</figcaption></figure>`, { name: "a.pdf", caption: "c" }],
+  ];
+
+  it.each(CASES)("%s", (_name, html, expected) => {
+    const web = parseWith(noteSchema, html);
+    expect(web).toHaveLength(1);
+    expect(web[0]!.props).toMatchObject(expected);
+    expect(parseWith(createHeadlessNoteSchema(window.location.href), html)).toEqual(web);
+  });
+
+  it("without data-name the name stays empty", () => {
+    expect(parseWith(noteSchema, `<embed src="${U}">`)[0]!.props.name).toBe("");
+  });
+});
+
 describe("columns nodes", () => {
   type Blk = { id: string; type: string; props: Record<string, unknown>; content?: unknown; children: Blk[] };
   const allTypes = (bs: Blk[]): string[] => bs.flatMap((b) => [b.type, ...allTypes(b.children)]);

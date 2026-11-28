@@ -1,5 +1,5 @@
 import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
-import { columnBlockSpec, columnListBlockSpec, withGuardedExternalHTML, withKnowledgeProps, withoutKnowledgeInExternalHTML } from "@knotebook/shared";
+import { columnBlockSpec, columnListBlockSpec, withGuardedExternalHTML, withMediaHtmlParse, withKnowledgeProps, withoutKnowledgeInExternalHTML } from "@knotebook/shared";
 import { CODE_BLOCK_OPTIONS } from "@/lib/code-highlight";
 import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
@@ -36,10 +36,10 @@ export const noteSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     heading: withoutKnowledgeInExternalHTML(withKnowledgeProps(defaultBlockSpecs.heading)),
-    audio: withGuardedExternalHTML(defaultBlockSpecs.audio, window.location.href),
-    file: withGuardedExternalHTML(defaultBlockSpecs.file, window.location.href),
+    audio: withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.audio, window.location.href)),
+    file: withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.file, window.location.href)),
     image: withGuardedExternalHTML(defaultBlockSpecs.image, window.location.href),
-    video: withGuardedExternalHTML(defaultBlockSpecs.video, window.location.href),
+    video: withMediaHtmlParse(withGuardedExternalHTML(defaultBlockSpecs.video, window.location.href)),
     // `createReactBlockSpec` returns a factory (unlike `createReactInlineContentSpec`), so the call parentheses are required.
     mermaid: mermaidSpec(),
     // #96: `defaultBlockSpecs.codeBlock` is created with no options (no languages, no highlighter);

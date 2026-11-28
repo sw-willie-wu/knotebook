@@ -350,6 +350,26 @@ These are refused with `400 unsupported_size` (over MCP, the tool error `unsuppo
 
 **Markdown read from an earlier version.** A note with a resized image or with table column widths now reads differently: the image as the `<figure>` above, with its `width`, and a table with column widths but no cell color as HTML instead of a pipe table. Two forms that were already HTML are now stricter, too: a colored table with column widths had `colwidth` on every row, and a colored image with a set width had more attributes than the `<figure>` form above allows. Sending such older text back unchanged is refused with `unsupported_size`. A row of side-by-side columns read as its columns' blocks one after another, without the column tags, or as one block of HTML when a block in it had a color (see [Columns](#columns)); sending the first form back turns the row into ordinary blocks, and the second is refused with `unsupported_columns`. A note with no columns, no set image width and no table column widths reads as before, except that a stored column width that isn't a positive number — `NaN` in a colored table with merged cells, for example — now reads as an empty value.
 
+### Audio, video and files
+
+Audio, video and file blocks read as HTML, one block each, so that they come back as the same block when written:
+
+| What | Reads, and is written, as |
+|---|---|
+| Audio | `<audio src="URL" data-name="NAME"></audio>` |
+| Video | `<video src="URL" data-name="NAME" width="W"></video>`, with `width` only when a width is set |
+| A file | `<embed src="URL" data-name="NAME">` |
+| Any of them with a caption | the same element in `<figure>…<figcaption>CAPTION</figcaption></figure>` |
+| Audio or video whose preview is turned off | `data-show-preview="false"` after `data-name` |
+
+- **`URL` is the upload's own `/api/uploads/<id>`**, kept relative. `data-name` is left out when the block has no name.
+- **`W` follows the rule for image widths** under [Sizes](#sizes): a whole number of pixels from 32 to 4000. A stored width outside that range reads back brought into it, and a written one outside it is refused with `400 unsupported_size`.
+- **A block with no URL** reads as it did before: nothing.
+- **A background color on one of these blocks isn't kept** in the Markdown.
+- **A plain link, `[NAME](/api/uploads/<id>)`, stays a link** in a paragraph. Only the HTML above makes a block.
+- **An event-handler attribute** such as `onload` on any of these elements is refused with `400 unsupported_block`, as everywhere else.
+- **Markdown read from an earlier version** showed these blocks as a link or a bare `<audio>` / `<video>`. Reading the same note now gives the HTML above, so a fingerprint taken before the upgrade no longer matches; read it again.
+
 ## Presence
 
 While a program works on a note, it shows up **in the note** — as a remote cursor, the same one another person editing gets, and in the note header's row of people.
