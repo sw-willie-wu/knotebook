@@ -1,0 +1,10 @@
+{
+  "filePreview": {
+    "openInNewTab": "Open in new tab",
+    "download": "Download",
+    "loading": "Loading…",
+    "truncated": "Only the first 1 MB is shown.",
+    "error": "This file can't be shown here.",
+    "frameTitle": "{{name}} preview"
+  }
+}

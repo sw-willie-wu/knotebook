@@ -58,8 +58,8 @@ export function assertUploadsDirWritable(uploadsDir: string): void {
  */
 export const UPLOAD_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox";
 
-// No `sandbox`: it disables the browsers' built-in PDF viewers.
-export const UPLOAD_PDF_CSP = "default-src 'none'; frame-ancestors 'none'";
+// No `sandbox`: it disables the browsers' built-in PDF viewers. `frame-ancestors 'self'`: the note page shows PDFs in a frame; other sites still can't.
+export const UPLOAD_PDF_CSP = "default-src 'none'; frame-ancestors 'self'";
 
 const UPLOAD_CACHE_CONTROL = "private, max-age=31536000, immutable";
 

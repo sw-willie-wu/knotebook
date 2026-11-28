@@ -899,12 +899,13 @@ describe("GET /api/uploads/:id: class headers, Range and HEAD", () => {
     expect(readdirSync(uploadsDir)).toEqual([]);
   });
 
-  it("a PDF opens inline with its own CSP and no sandbox", async () => {
+  it("a PDF opens inline with its own CSP and no sandbox, framable by this site only", async () => {
     const { app, cookie, noteId } = await ownerSetup();
     const id = await uploadAs(app, noteId, cookie, Buffer.from(pdf()), "spec.pdf", "application/pdf");
     const res = await app.inject({ method: "GET", url: `/api/uploads/${id}`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(res.headers["content-type"]).toBe("application/pdf");
-    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'none'");
+    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'self'");
+    expect(res.headers["x-frame-options"]).toBeUndefined();
     expect(res.headers["content-disposition"]).toBe("inline; filename=\"spec.pdf\"; filename*=UTF-8''spec.pdf");
   });
 

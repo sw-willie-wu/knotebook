@@ -90,12 +90,14 @@ export const MANAGEMENT_I18N_MARKERS = ['autoCreateConfirmKeep', 'actionBuiltinB
 export const ICONS_EXTRA_RE = /^icons-extra-[A-Za-z0-9_-]+.js$/;
 export const MANAGEMENT_STRINGS_RE = /^management-strings-[A-Za-z0-9_-]+\.js$/;
 // Dialogs mounted only when opened: each must be a lazy chunk whose marker is absent from entry. Presence only catches the whole group
-// merging back or a rename; one static call site leaves the chunk in place, which the marker catches. MediaLightbox loads only via lightbox-chunk.ts.
+// merging back or a rename; one static call site leaves the chunk in place, which the marker catches. MediaLightbox loads only via lightbox-chunk.ts,
+// FilePreviewDialog (with its string pack) only via file-preview-chunk.ts.
 export const GROUP_LAZY_DIALOGS = [
   { name: 'GroupNameDialog', re: /^GroupNameDialog-[A-Za-z0-9_-]+\.js$/, marker: 'groups.dialog.createDescription', source: 'components/groups/GroupNameDialog.tsx' },
   { name: 'DeleteGroupDialog', re: /^DeleteGroupDialog-[A-Za-z0-9_-]+\.js$/, marker: 'groups.delete.transferTrashNote', source: 'components/groups/DeleteGroupDialog.tsx' },
   { name: 'GroupTransferDialog', re: /^GroupTransferDialog-[A-Za-z0-9_-]+\.js$/, marker: 'share.move.openCopyAlt', source: 'components/share/GroupTransferDialog.tsx' },
   { name: 'MediaLightbox', re: /^MediaLightbox-[A-Za-z0-9_-]+\.js$/, marker: 'note.zoom.hint', source: 'components/media-zoom/MediaLightbox.tsx' },
+  { name: 'FilePreviewDialog', re: /^FilePreviewDialog-[A-Za-z0-9_-]+\.js$/, marker: 'filePreview.truncated', source: 'components/file-preview/FilePreviewDialog.tsx' },
 ];
 // reveal.css's `.reveal-viewport` rule in entry CSS means reveal.css was imported statically.
 export const ENTRY_CSS_RE = /^index-[A-Za-z0-9_-]+\.css$/;

@@ -17,6 +17,7 @@ import { useOutlineHeadings, type OutlineEditorLike } from "@/components/outline
 import { useIsOutlineCompact } from "@/lib/layout-tiers";
 import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
 import { ImageZoomLayer } from "@/components/media-zoom/ImageZoomLayer";
+import { FilePreviewLayer } from "@/components/file-preview/FilePreviewLayer";
 import { PublicPageFrame } from "@/components/PublicNoteShell";
 import { publicNoteApiPath, publicNoteQueryKey, publicRefIdentity, type PublicNoteRef } from "@/lib/public-note-ref";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
@@ -209,6 +210,7 @@ export default function PublicNotePage() {
               <HeadingAnchorButtons container={columnEl} />
               <ImageZoomLayer container={columnEl} editable={false} />
             </MediaZoomProvider>
+            <FilePreviewLayer container={columnEl} />
           </div>
         </div>
       </>

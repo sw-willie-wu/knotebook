@@ -91,6 +91,7 @@ import { KnowledgeFieldsProvider } from "@/components/knowledge/fields-context";
 import { useKnowledgeEntries } from "@/components/knowledge/use-knowledge-entries";
 import { MediaZoomProvider } from "@/components/media-zoom/MediaZoomProvider";
 import { ImageZoomLayer } from "@/components/media-zoom/ImageZoomLayer";
+import { FilePreviewLayer } from "@/components/file-preview/FilePreviewLayer";
 import { ColumnDividers } from "@/components/editor/ColumnDividers";
 import { LinkLongPress } from "@/components/LinkLongPress";
 import { NoteOutline } from "@/components/outline/NoteOutline";
@@ -744,6 +745,7 @@ export function NoteEditor({
                 <KnowledgeLayerLazy container={columnEl} entries={knowledgeEntries} editable={editable} noteId={noteId} controller={knowledge} editor={editor} />
                 <ImageZoomLayer container={columnEl} editable={editable} editor={editor} />
               </MediaZoomProvider>
+              <FilePreviewLayer container={columnEl} />
               {/* nothing to resize when read-only */}
               {editable && <ColumnDividers container={columnEl} editor={editor} />}
               {mobileToolbar && !footerInScroll && <MobileToolbarSpacer />}

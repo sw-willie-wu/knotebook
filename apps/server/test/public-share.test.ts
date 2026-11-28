@@ -717,7 +717,7 @@ describe("public upload serving: class headers, Range and HEAD on both forms", (
     expect(over.json().error.code).toBe("too_many_requests");
   }, 60_000);
 
-  it("a PDF on a public link opens inline with its own CSP and no sandbox", async () => {
+  it("a PDF on a public link opens inline with its own CSP and no sandbox, framable by this site only", async () => {
     const { app, db, uploadsDir, token } = await publishedVideo();
     const [note] = await db.select({ id: notes.id }).from(notes).where(eq(notes.publicToken, token));
     const bytes = Buffer.from("%PDF-1.4\n%%EOF\n");
@@ -725,7 +725,8 @@ describe("public upload serving: class headers, Range and HEAD on both forms", (
     await writeFile(uploadFilePath(uploadsDir, row.id), bytes);
     const res = await app.inject({ method: "GET", url: `/api/public/notes/${token}/uploads/${row.id}` });
     expect(res.statusCode).toBe(200);
-    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'none'");
+    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'self'");
+    expect(res.headers["x-frame-options"]).toBeUndefined();
     expect(res.headers["content-disposition"]).toBe("inline; filename=\"slides.pdf\"; filename*=UTF-8''slides.pdf");
   });
 });

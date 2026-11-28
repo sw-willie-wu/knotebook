@@ -7,7 +7,7 @@ const OOXML = "application/vnd.openxmlformats-officedocument.";
 describe("upload CSP constants", () => {
   it("are pinned verbatim", () => {
     expect(UPLOAD_CSP).toBe("default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox");
-    expect(UPLOAD_PDF_CSP).toBe("default-src 'none'; frame-ancestors 'none'");
+    expect(UPLOAD_PDF_CSP).toBe("default-src 'none'; frame-ancestors 'self'");
   });
 });
 
@@ -58,13 +58,13 @@ describe("uploadResponseHeaders: exact header set per class", () => {
     });
   });
 
-  it("PDF: inline with its own CSP and no sandbox", () => {
+  it("PDF: inline with its own CSP, no sandbox, framable by this site only", () => {
     const headers = uploadResponseHeaders("application/pdf", "spec.pdf");
     expect(headers).toEqual({
       "x-content-type-options": "nosniff",
       "cache-control": CACHE,
       "content-type": "application/pdf",
-      "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+      "content-security-policy": "default-src 'none'; frame-ancestors 'self'",
       "content-disposition": "inline; filename=\"spec.pdf\"; filename*=UTF-8''spec.pdf",
     });
     expect(headers["content-security-policy"]).not.toContain("sandbox");
