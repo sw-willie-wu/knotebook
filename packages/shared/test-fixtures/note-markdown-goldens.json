@@ -18,7 +18,7 @@
         },
         { "id": "g0p-a", "type": "bulletListItem", "content": "a", "children": [{ "id": "g0p-a1", "type": "bulletListItem", "content": "a1" }] },
         { "id": "g0p-n1", "type": "numberedListItem", "content": "n1" },
-        { "id": "g0p-code", "type": "codeBlock", "props": { "language": "ts" }, "content": "const x = 1;" },
+        { "id": "g0p-code", "type": "codeBlock", "props": { "language": "typescript" }, "content": "const x = 1;" },
         {
           "id": "g0p-table",
           "type": "table",
@@ -26,7 +26,7 @@
         },
         { "id": "g0p-q", "type": "quote", "content": "q" }
       ],
-      "markdown": "# Title\n\n**b** *i* [ext](https://example.com)\n\n* a\n  * a1\n\n1. n1\n\n```ts\nconst x = 1;\n```\n\n| h1         | h2         |\n| ---------- | ---------- |\n| c1         | c2         |\n\n> q\n"
+      "markdown": "# Title\n\n**b** *i* [ext](https://example.com)\n\n* a\n  * a1\n\n1. n1\n\n```typescript\nconst x = 1;\n```\n\n| h1         | h2         |\n| ---------- | ---------- |\n| c1         | c2         |\n\n> q\n"
     },
     {
       "id": "G0-media",
@@ -202,7 +202,7 @@
         },
         { "id": "g0x-a", "type": "bulletListItem", "content": "a", "children": [{ "id": "g0x-a1", "type": "bulletListItem", "content": "a1" }] },
         { "id": "g0x-n1", "type": "numberedListItem", "content": "n1" },
-        { "id": "g0x-code", "type": "codeBlock", "props": { "language": "ts" }, "content": "const x = 1;" },
+        { "id": "g0x-code", "type": "codeBlock", "props": { "language": "typescript" }, "content": "const x = 1;" },
         {
           "id": "g0x-table",
           "type": "table",
@@ -210,7 +210,7 @@
         },
         { "id": "g0x-q", "type": "quote", "content": "q" }
       ],
-      "markdown": "# Title\n\n**b** *i* [ext](https://example.com)\n\n* a\n  * a1\n\n1. n1\n\n```ts\nconst x = 1;\n```\n\n<table><tr><th colwidth=\"120\">h1</th><th colwidth=\"240\">h2</th></tr><tr><td>c1</td><td>c2</td></tr></table>\n\n> q\n"
+      "markdown": "# Title\n\n**b** *i* [ext](https://example.com)\n\n* a\n  * a1\n\n1. n1\n\n```typescript\nconst x = 1;\n```\n\n<table><tr><th colwidth=\"120\">h1</th><th colwidth=\"240\">h2</th></tr><tr><td>c1</td><td>c2</td></tr></table>\n\n> q\n"
     },
     {
       "id": "G1-cols-spec",
@@ -632,7 +632,7 @@
         { "id": "g4h-li", "type": "bulletListItem", "content": "<!-- c -->" },
         { "id": "g4h-q", "type": "quote", "content": "&lt;b&gt; 2 < 3 and 5 > 4" },
         { "id": "g4h-code", "type": "paragraph", "content": [{ "type": "text", "text": "<b>", "styles": { "code": true } }, { "type": "text", "text": " x", "styles": {} }] },
-        { "id": "g4h-fence", "type": "codeBlock", "props": { "language": "ts" }, "content": "<b>x</b>" },
+        { "id": "g4h-fence", "type": "codeBlock", "props": { "language": "typescript" }, "content": "<b>x</b>" },
         { "id": "g4h-path", "type": "paragraph", "content": "C:\\<dir>" },
         { "id": "g4h-color", "type": "paragraph", "content": [{ "type": "text", "text": "plain ", "styles": {} }, { "type": "text", "text": "<kbd>k</kbd>", "styles": { "textColor": "red" } }] },
         {
@@ -641,7 +641,7 @@
           "content": { "type": "tableContent", "headerRows": 1, "rows": [{ "cells": ["h1", "h2"] }, { "cells": ["<div>x</div>", "c"] }] }
         }
       ],
-      "markdown": "\\<b>bold\\</b> a \\<b> c \\<img src=x>\n\n## \\<h1>H\\</h1>\n\n* \\<!-- c -->\n\n> &lt;b&gt; 2 < 3 and 5 > 4\n\n`<b>` x\n\n```ts\n<b>x</b>\n```\n\nC:\\\\\\<dir>\n\nplain <span style=\"color:red\">\\<kbd>k\\</kbd></span>\n\n| h1             | h2         |\n| -------------- | ---------- |\n| \\<div>x\\</div> | c          |\n"
+      "markdown": "\\<b>bold\\</b> a \\<b> c \\<img src=x>\n\n## \\<h1>H\\</h1>\n\n* \\<!-- c -->\n\n> &lt;b&gt; 2 < 3 and 5 > 4\n\n`<b>` x\n\n```typescript\n<b>x</b>\n```\n\nC:\\\\\\<dir>\n\nplain <span style=\"color:red\">\\<kbd>k\\</kbd></span>\n\n| h1             | h2         |\n| -------------- | ---------- |\n| \\<div>x\\</div> | c          |\n"
     }
   ]
 }

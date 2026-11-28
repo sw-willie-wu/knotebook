@@ -3,6 +3,7 @@ import {
   TRASH_BATCH_MAX,
   type NoteDto,
   type TrashListDto,
+  type TrashPreviewDto,
   type TrashPurgeResultDto,
   type TrashRestoreResultDto,
   type TrashSettingsDto,
@@ -13,8 +14,22 @@ import { api, ApiFail } from "./client";
 export const TRASH_QUERY_KEY = ["trash"] as const;
 export const TRASH_SETTINGS_QUERY_KEY = ["admin", "trash-settings"] as const;
 
+/** Under `TRASH_QUERY_KEY` so `invalidateTrashRelated` also refetches open previews. */
+export function trashPreviewKey(noteId: string) {
+  return ["trash", "preview", noteId] as const;
+}
+
 export function useTrash(): UseQueryResult<TrashListDto> {
   return useQuery({ queryKey: TRASH_QUERY_KEY, queryFn: () => api<TrashListDto>("/api/trash") });
+}
+
+export function useTrashPreview(noteId: string, opts?: { enabled?: boolean }): UseQueryResult<TrashPreviewDto> {
+  return useQuery({
+    queryKey: trashPreviewKey(noteId),
+    queryFn: () => api<TrashPreviewDto>(`/api/trash/${encodeURIComponent(noteId)}`),
+    enabled: (opts?.enabled ?? true) && noteId.length > 0,
+    retry: false,
+  });
 }
 
 export function chunkIds(ids: readonly string[], size: number = TRASH_BATCH_MAX): string[][] {

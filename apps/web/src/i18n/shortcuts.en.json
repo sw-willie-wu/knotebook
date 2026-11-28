@@ -253,6 +253,10 @@
         "knowledgeFields": {
           "title": "Choose the knowledge fields",
           "desc": "Site admins choose which knowledge info fields headings carry, in Site admin → Knowledge fields: turn off the fields your site doesn't use, rename, add, hide or reorder the Basis options, and add fields of your own: text, a single choice, a date, a link or a person. Custom fields can't be deleted, only turned off. A field that is off is left out of the form, the card, the index and what agents read, and the values already saved are kept. Knowledge now has a status of its own (Verified, Needs review or Outdated) and needs no other field filled in."
+        },
+        "trashPreview": {
+          "title": "Preview notes in the trash",
+          "desc": "Click a note in the Trash tab — or open its link directly — to read its contents before deciding whether to restore or permanently delete it. The preview is read-only and shows uploaded images without restoring the note."
         }
       }
     }

@@ -87,6 +87,17 @@ describe("typed mermaid fence", () => {
     expect(editor.document.filter((b: { type: string }) => b.type === "codeBlock")).toHaveLength(0);
   });
 
+  it("```Mermaid + Enter and ```MERMAID + space also become mermaid blocks (#590)", () => {
+    const first = emptyNote();
+    typeString(first.view, "```Mermaid");
+    pressEnter(first.view);
+    expect(first.editor.document[0]!.type).toBe("mermaid");
+
+    const second = emptyNote();
+    typeString(second.view, "```MERMAID ");
+    expect(second.editor.document[0]!.type).toBe("mermaid");
+  });
+
   const textOf = (b: { content?: unknown }) => (Array.isArray(b.content) ? b.content.map((n: { text?: string }) => n.text ?? "").join("") : "");
 
   it("puts the caret in a new paragraph after the diagram, so typing does not replace it", () => {

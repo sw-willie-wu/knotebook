@@ -3,14 +3,14 @@ import { CODE_BLOCK_BASE_OPTIONS } from "@knotebook/shared";
 
 /**
  * Not the official `@blocknote/code-block` (MPL-2.0 in an MIT repo). One CSS-variables theme
- * because BlockNote's highlight plugin hard-codes `getLoadedThemes()[0]`, so light/dark cannot be
- * switched by loading two themes; the values live in `index.css` `:root` / `:root.dark`, following
- * `resolvedTheme` and independent of the accent color.
+ * because `prosemirror-highlight/shiki`'s `createParser` defaults to `getLoadedThemes()[0]`, so
+ * light/dark cannot be switched by loading two themes; the values live in `index.css` `:root` /
+ * `:root.dark`, following `resolvedTheme` and independent of the accent color.
  */
 
 /**
  * Keys must be shiki bundle language ids: `loadLanguage()` throws for unknown ids (the test loads
- * every key). `text` is first because BlockNote skips highlighting for it.
+ * every key). `text` is first because the highlight plugin skips it.
  */
 export { SUPPORTED_LANGUAGES } from "@knotebook/shared";
 

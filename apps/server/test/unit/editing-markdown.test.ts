@@ -505,3 +505,90 @@ describe("#269: wikilink read -> write back keeps the label verbatim (paragraphs
     expect(md).not.toContain(`](/notes/${ID})`);
   });
 });
+
+describe("code block fence language normalization (#590)", () => {
+  it("normalizes mixed-case language names and aliases to canonical lowercase ids, restores Mermaid case-insensitively, and preserves unknown languages", async () => {
+    const md = [
+      "```Python",
+      "print(1)",
+      "```",
+      "",
+      "```LaTeX",
+      "$x_1^2$",
+      "```",
+      "",
+      "```PY",
+      "x = 1",
+      "```",
+      "",
+      "```TS",
+      "const a = 1;",
+      "```",
+      "",
+      "```C++",
+      "int main() {}",
+      "```",
+      "",
+      "```C#",
+      "class A {}",
+      "```",
+      "",
+      "```Dockerfile",
+      "FROM node:24",
+      "```",
+      "",
+      "```Plaintext",
+      "hi",
+      "```",
+      "",
+      "```Mermaid",
+      "graph TD",
+      "  A-->B",
+      "```",
+      "",
+      "```",
+      "bare",
+      "```",
+      "",
+      "```Ruby",
+      "puts 1",
+      "```",
+      "",
+      "```TeX",
+      "$x$",
+      "```",
+    ].join("\n");
+
+    let blocks: unknown[] = [];
+    await withSession(ed => {
+      const parsed = parseMarkdownForNote(ed, md, notes, ORIGIN);
+      if ("error" in parsed) throw new Error(parsed.error);
+      blocks = parsed.blocks;
+      expect(parsed.blocks.map(b => (b.type === "mermaid" ? "mermaid" : `${b.type}:${(b.props as { language?: string })?.language}`))).toEqual([
+        "codeBlock:python",
+        "codeBlock:latex",
+        "codeBlock:python",
+        "codeBlock:typescript",
+        "codeBlock:cpp",
+        "codeBlock:csharp",
+        "codeBlock:docker",
+        "codeBlock:text",
+        "mermaid",
+        "codeBlock:text",
+        "codeBlock:Ruby",
+        "codeBlock:TeX",
+      ]);
+    });
+
+    // Writing into a note and reading back emits canonical lowercase fences.
+    const doc = await docWith(blocks);
+    const out = await readMd(doc);
+    expect(out).toContain("```python\nprint(1)\n```");
+    expect(out).toContain("```latex\n$x_1^2$\n```");
+    expect(out).toContain("```typescript\nconst a = 1;\n```");
+    expect(out).toContain("```cpp\nint main() {}\n```");
+    expect(out).toContain("```csharp\nclass A {}\n```");
+    expect(out).toContain("```docker\nFROM node:24\n```");
+    expect(out).toContain("```mermaid\ngraph TD\n  A-->B\n```");
+  });
+});

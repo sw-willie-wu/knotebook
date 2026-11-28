@@ -4,6 +4,7 @@
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "./ydoc.js";
 import { mapInlineArrays } from "./site-link.js";
+import { MERMAID_LANGUAGE } from "./note-schema-config.js";
 
 // Same pattern as the server's notes/service.ts; deliberately not shared.
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -26,7 +27,7 @@ type AnyInline = { type: string; text?: string; props?: Record<string, unknown>;
 export function restoreMermaidBlocks<B>(blocks: B[]): B[] {
   return (blocks as AnyBlock[]).map(b => {
     const children = Array.isArray(b.children) && b.children.length > 0 ? restoreMermaidBlocks(b.children) : b.children;
-    if (b.type === "codeBlock" && b.props?.language === "mermaid" && Array.isArray(b.content)) {
+    if (b.type === "codeBlock" && typeof b.props?.language === "string" && b.props.language.trim().toLowerCase() === MERMAID_LANGUAGE && Array.isArray(b.content)) {
       const code = (b.content as Array<{ text?: string }>).map(c => c.text ?? "").join("");
       // Keep the parsed id: preview diff pairs blocks by id, so an id-less diagram would show as removed and re-added.
       return { ...(typeof b.id === "string" ? { id: b.id } : {}), type: "mermaid", props: { code } } as unknown as B;
