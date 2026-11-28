@@ -152,6 +152,42 @@ describe("end to end (collab app): the curl the tool returns works, and its url 
     expect(body).toEqual({ id: expect.stringMatching(/^[0-9a-f-]{36}$/), url: `/api/uploads/${body.id}`, mime: "application/pdf", kind: "file" });
   });
 
+  it("an upload written with the form UPLOAD_NEXT names for its kind reads back as that same canonical form", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `t3-${randomUUID()}@example.com`, password: "correct-horse-battery" });
+    const note = await ctx.createNote(owner.id, "Media");
+    const { token: pat } = await seedTokenForUser(ctx.db, owner.id);
+    const upload = async (file: Uint8Array, filename: string, contentType: string) => {
+      const p = (await callTool(ctx.app, pat, "create_transfer_token", { note_id: note.id, purpose: "upload" })).structuredContent as Payload;
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: new URL(p.url).pathname,
+        headers: { "content-type": MULTIPART, authorization: `Bearer ${p.token}` },
+        payload: fileBody(Buffer.from(file), { filename, contentType }),
+      });
+      expect(res.statusCode).toBe(201);
+      return res.json() as { url: string; kind: string };
+    };
+    const video = await upload(fx.mp4(), "clip.mp4", "video/mp4");
+    const audio = await upload(fx.mp3(), "song.mp3", "audio/mpeg");
+    const file = await upload(fx.pdf(), "report.pdf", "application/pdf");
+    expect([video.kind, audio.kind, file.kind]).toEqual(["video", "audio", "file"]);
+    const markdown = [
+      `<video src="${video.url}" data-name="clip.mp4"></video>`,
+      `<audio src="${audio.url}" data-name="song.mp3"></audio>`,
+      `<embed src="${file.url}" data-name="report.pdf">`,
+    ].join("\n\n");
+    const edit = await callTool(ctx.app, pat, "edit_note", { note_id: note.id, op: "append", markdown });
+    expect(edit.isError).toBeUndefined();
+    const read = await callTool(ctx.app, pat, "read_note_section", { note_id: note.id, section_id: "_top" });
+    expect(read.isError).toBeUndefined();
+    const out = (read.structuredContent.section as { markdown: string }).markdown;
+    expect(out).toContain(`<video src="${video.url}" data-name="clip.mp4"></video>`);
+    expect(out).toContain(`<audio src="${audio.url}" data-name="song.mp3"></audio>`);
+    expect(out).toContain(`<embed src="${file.url}" data-name="report.pdf">`);
+    expect(out).not.toContain("](/api/uploads/");
+  });
+
   it("create_transfer_token not_found is byte-identical to read_note_outline not_found", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `nf-${randomUUID()}@example.com`, password: "correct-horse-battery" });

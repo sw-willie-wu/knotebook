@@ -25,7 +25,7 @@ export const READ_NOTE_SECTION_DESCRIPTION =
   "set to `nextOffset`. The `fingerprint` you need to replace this section arrives with the page that " +
   "finishes it, so read to the end before you rewrite it. " +
   // "for example": images inside nodes exported wholesale as HTML take that HTML form, and old collapsed-block images have absolute URLs, which is why the main clause says only that the address contains the upload id; table cells aren't mentioned (they hold no width-set images).
-  "An uploaded file's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)`, in `[name](/api/uploads/<id>)` or, for an image with " +
+  "An uploaded file's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)`, in `[name](/api/uploads/<id>)`, in `<audio>`, `<video>` or `<embed>` with `src=\"/api/uploads/<id>\"` (inside a `<figure>` when it has a caption) or, for an image with " +
   "a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; read an image with read_note_image. " +
   READ_SECTION_KNOWLEDGE_SENTENCE;
 
@@ -63,7 +63,7 @@ export const readNoteSectionOutput = {
         "This page of the section, as markdown. The first page starts with the section's heading line — except " +
           "`_top`, which has no heading; a later page resumes where the last one stopped. Colored text and blocks come back as " +
           // A row with 5 or more columns reads fine but is rejected when written back as-is, so the parenthesis gives the write limit.
-          "HTML, as do images shown at a set width, tables with set column widths, and the <div> tags around side-by-side columns; " +
+          "HTML, as do images shown at a set width, audio, video and file blocks, tables with set column widths, and the <div> tags around side-by-side columns; " +
           "write it back unchanged to keep them (edit_note takes rows of 2 to 4 columns). " +
           // In colored and wholesale-HTML blocks a `<` in text reads as `&lt;`; in code it is as-is.
           "Outside code and blocks that come back as HTML, a `<` that could start an HTML tag or comment comes back as `\\<`; " +

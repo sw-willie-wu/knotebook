@@ -22,7 +22,7 @@ const DESC_SESSION =
   "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Raster images up to 5242880 bytes come back as an image, and SVGs up to 102400 bytes as UTF-8 XML text; larger ones are refused.";
 /** Columns: images with a width are also read as `<figure>`; table cells aren't mentioned; the address is given as an example (old absolute URLs also contain the id). */
 const SECTION_SENTENCE =
-  "An uploaded file's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)`, in `[name](/api/uploads/<id>)` or, for an image with a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; read an image with read_note_image.";
+  "An uploaded file's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)`, in `[name](/api/uploads/<id>)`, in `<audio>`, `<video>` or `<embed>` with `src=\"/api/uploads/<id>\"` (inside a `<figure>` when it has a caption) or, for an image with a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; read an image with read_note_image.";
 /** Sentence from before the columns feature: it only covers figures with captions, which is incomplete once images with widths ship. */
 const OLD_SECTION_SENTENCE =
   "Uploaded images appear as `![name](/api/uploads/<id>)`, or inside `<figure><img src=\"/api/uploads/<id>\">…</figure>` when captioned; see them with read_note_image.";
@@ -235,7 +235,7 @@ describe("#200 read_note_image", () => {
     const sec = await call(ctx.app, { token }, "read_note_section", { note_id: n.id, section_id: sectionId });
     const md = (sec.structuredContent!.section as { markdown: string }).markdown;
     expect(md).toContain(`![plain](/api/uploads/${p})`);
-    expect(md).toContain(`[report.pdf](/api/uploads/${f})`);
+    expect(md).toContain(`<embed src="/api/uploads/${f}" data-name="report.pdf">`);
     expect(md).toContain("<figure><img");
     expect(md).toContain(`src="/api/uploads/${q}"`);
     expect(md).toContain("<figcaption>");
