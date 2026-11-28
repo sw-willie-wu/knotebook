@@ -1138,7 +1138,7 @@ test('the upload runner marker in entry -> throws; in a lazy chunk -> passes', (
       ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': 'x', [where]: `new A(401,"unauthorized",${JSON.stringify(UPLOAD_RUNNER_MARKER)})`,
     });
     try {
-      if (throws) assert.throws(() => checkBundleSize(assets), /index-Abc123\.js[\s\S]*Signed out[\s\S]*upload-runner/);
+      if (throws) assert.throws(() => checkBundleSize(assets), new RegExp(`index-Abc123\\.js[\\s\\S]*${UPLOAD_RUNNER_MARKER}[\\s\\S]*upload-runner`));
       else assert.doesNotThrow(() => checkBundleSize(assets));
     } finally {
       cleanup();

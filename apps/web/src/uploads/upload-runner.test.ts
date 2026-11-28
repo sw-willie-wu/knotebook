@@ -143,6 +143,13 @@ const hold = (noteId: string) => {
   return handle;
 };
 
+/** The note open in an editor and synced: a retry finds the block at once instead of waiting for a connection. */
+async function openNote(noteId: string, blocks: unknown[] = [videoBlock()]) {
+  const handle = hold(noteId);
+  await writableWith(providerOf(handle.doc), blocks);
+  return handle;
+}
+
 beforeEach(() => {
   hoisted.instances.length = 0;
   installFakeXhr();
@@ -645,6 +652,7 @@ describe("after upload_interrupted", () => {
       .mockResolvedValueOnce(ctxValue({ roomBytes: 50 * MIB }))
       .mockResolvedValueOnce(ctxValue({ roomBytes: 50 * MIB }))
       .mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    await openNote(NOTE_A);
     const id = await startVideo(NOTE_A, { precheckCtx: ctx });
     lastXhr().onerror?.();
     await flush();
@@ -771,9 +779,103 @@ describe("dismissUpload", () => {
   });
 });
 
+describe("a retry checks the block before sending again", () => {
+  async function failedIn(noteId: string) {
+    const id = await startVideo(noteId);
+    lastXhr().onerror?.();
+    await flush();
+    expect(rules.isUploadRetryable(item(id))).toBe(true);
+    return id;
+  }
+
+  it("the block deleted since: nothing is sent, the item is no longer placed (not stored), and the file is let go", async () => {
+    const editor = await openNote(NOTE_A, [{ id: "p1", type: "paragraph", content: "x" }, videoBlock()]);
+    const id = await failedIn(NOTE_A);
+    (editor.doc.getXmlFragment(YDOC_FRAGMENT).get(0) as Y.XmlElement).delete(1, 1);
+
+    await retryUpload(id);
+    await flush();
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(item(id)).toMatchObject({ status: "unplaced" });
+    expect(item(id).stored).toBeUndefined();
+    expect(item(id).retrying).toBeUndefined();
+    expect(hasUploadRunForTest(id)).toBe(false);
+    expect(liveProviders()).toHaveLength(1);
+  });
+
+  it("the block holding another URL since: nothing is sent and that URL is kept", async () => {
+    const editor = await openNote(NOTE_A);
+    const id = await failedIn(NOTE_A);
+    contentOf(editor.doc, "v1")!.setAttribute("url", "https://example.com/other.mp4");
+
+    await retryUpload(id);
+    await flush();
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(item(id).status).toBe("unplaced");
+    expect(contentOf(editor.doc, "v1")?.getAttribute("url")).toBe("https://example.com/other.mp4");
+  });
+
+  it("with the note closed, it opens the note and sends only once the first sync shows the block", async () => {
+    const id = await failedIn(NOTE_A);
+    const providers = hoisted.instances.length;
+    const retried = retryUpload(id);
+    await flush();
+    expect(hoisted.instances).toHaveLength(providers + 1);
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(item(id).retrying).toBe(true);
+
+    await writableWith(provider(providers), [videoBlock()]);
+    await retried;
+    expect(FakeXhr.instances).toHaveLength(2);
+    expect(item(id)).toMatchObject({ status: "uploading" });
+    expect(item(id).retrying).toBeUndefined();
+  });
+
+  it("a note that can no longer be edited fails the retry without sending", async () => {
+    const id = await failedIn(NOTE_A);
+    const providers = hoisted.instances.length;
+    const retried = retryUpload(id);
+    await flush();
+    const p = provider(providers);
+    p.emit("close", { event: { code: 1000, reason: COLLAB_CLOSE_REVOKED } });
+    p.emit("close", { event: { code: 1006, reason: "" } });
+    tokenResponse = () => Promise.resolve(fakeResponse(true, 200, { token: "jwt", role: "none" }));
+    await p.configuration.token();
+    await retried;
+    await flush();
+
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(item(id)).toMatchObject({ status: "failed", error: { code: "upload_write_rejected" } });
+    expect(liveProviders()).toHaveLength(0);
+  });
+
+  it("dismissed while the retry waits for the note: nothing is sent and the connection closes", async () => {
+    const id = await failedIn(NOTE_A);
+    const retried = retryUpload(id);
+    await flush();
+    store.dismissUpload(id);
+    await retried;
+    await flush();
+    expect(FakeXhr.instances).toHaveLength(1);
+    expect(liveProviders()).toHaveLength(0);
+  });
+
+  it("an item reported as no longer placed from the editor lets its stored file go", async () => {
+    vi.useFakeTimers();
+    const id = await startVideo(NOTE_A);
+    lastXhr().respond(201, response());
+    await vi.advanceTimersByTimeAsync(UPLOAD_WRITE_WAIT_MS);
+    expect(item(id)).toMatchObject({ status: "failed", stored: true });
+    store.dropUnplaceableUpload(id);
+    expect(item(id).status).toBe("unplaced");
+    expect(hasUploadRunForTest(id)).toBe(false);
+  });
+});
+
 describe("retry guards", () => {
   it("a 429 that says when to try again: Retry sends nothing before then, and uploads once the wait is over", async () => {
     vi.useFakeTimers({ now: 1_000_000, toFake: ["Date"] });
+    await openNote(NOTE_A);
     const id = await startVideo(NOTE_A);
     lastXhr().respond(429, { error: { code: "too_many_requests", message: "x" }, retryAfterMs: 30_000 });
     await flush();
@@ -796,6 +898,7 @@ describe("retry guards", () => {
 
   it("a failure without retryAfterMs leaves no wait behind from an earlier one", async () => {
     vi.useFakeTimers({ now: 1_000_000, toFake: ["Date"] });
+    await openNote(NOTE_A);
     const id = await startVideo(NOTE_A);
     lastXhr().respond(429, { error: { code: "too_many_requests", message: "x" }, retryAfterMs: 1_000 });
     await flush();
@@ -835,6 +938,7 @@ describe("retry guards", () => {
     store.setUploadSessionExpiredHandler(expired);
     store.setUploadUserSource(() => "alice");
     const ctx = vi.fn(async () => ctxValue());
+    if (sends) await openNote(NOTE_A);
     const id = await startVideo(NOTE_A, { precheckCtx: ctx });
     lastXhr().onerror?.();
     await flush();
@@ -861,6 +965,7 @@ describe("retry guards", () => {
     meResponse = (init) =>
       new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
     store.setUploadUserSource(() => "alice");
+    await openNote(NOTE_A);
     const id = await startVideo(NOTE_A);
     lastXhr().onerror?.();
     await vi.advanceTimersByTimeAsync(0);
@@ -883,6 +988,7 @@ describe("retry guards", () => {
   });
 
   it("no one known when it started (no user source): a retry doesn't ask the server", async () => {
+    await openNote(NOTE_A);
     const id = await startVideo(NOTE_A);
     expect(item(id).ownerId).toBeUndefined();
     lastXhr().onerror?.();

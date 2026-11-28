@@ -10,7 +10,7 @@ import type { Db } from "../src/db/index.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { seedNote, seedUser } from "./group-helpers.js";
 
-/** A complete 8-byte PNG signature plus arbitrary content (`detectImageMimeType` requires the full signature). */
+/** A complete 8-byte PNG signature plus arbitrary content (`detectRasterImageMimeType` requires the full signature). */
 export const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03]);
 const BOUNDARY = "knotebookTransferBoundary";
 export const MULTIPART = `multipart/form-data; boundary=${BOUNDARY}`;

@@ -26,8 +26,8 @@ async function scene() {
   return { app, db, pool: fresh.pool, alice, bob, noteId: note.id };
 }
 
-async function seedUpload(db: Db, noteId: string, uploaderId: string, fileName: string | null = "meeting-recording.mp4"): Promise<string> {
-  const [row] = await db.insert(uploads).values({ noteId, uploaderId, mime: "video/mp4", size: 10, fileName }).returning({ id: uploads.id });
+async function seedUpload(db: Db, noteId: string, uploaderId: string, fileName: string | null = "meeting-recording.mp4", mime = "video/mp4"): Promise<string> {
+  const [row] = await db.insert(uploads).values({ noteId, uploaderId, mime, size: 10, fileName }).returning({ id: uploads.id });
   return row!.id;
 }
 
@@ -159,7 +159,7 @@ describe("POST /api/uploads/:id/finished", () => {
 describe("listing an upload_finished notification", () => {
   it("once the note can't be read it keeps only the file name, kind and time", async () => {
     const { app, db, bob, noteId } = await scene();
-    const uploadId = await seedUpload(db, noteId, bob.id, "plan.pdf");
+    const uploadId = await seedUpload(db, noteId, bob.id, "plan.pdf", "application/pdf");
     expect((await report(app, bob.id, uploadId)).statusCode).toBe(204);
     await db.delete(noteShares).where(eq(noteShares.userId, bob.id));
 
@@ -175,6 +175,14 @@ describe("listing an upload_finished notification", () => {
     const uploadId = await seedUpload(db, noteId, alice.id, null);
     expect((await report(app, alice.id, uploadId)).statusCode).toBe(204);
     expect((await listOf(app, alice.id)).notifications[0]).toMatchObject({ fileName: `${uploadId}.mp4` });
+  });
+
+  it("shows the name the file is served under, the one its block and download use, not the stored one", async () => {
+    const { app, db, alice, noteId } = await scene();
+    const docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const uploadId = await seedUpload(db, noteId, alice.id, "report.jar", docx);
+    expect((await report(app, alice.id, uploadId)).statusCode).toBe(204);
+    expect((await listOf(app, alice.id)).notifications[0]).toMatchObject({ fileName: "report.docx" });
   });
 
   it("mixes with comment notifications, newest first, and both count", async () => {

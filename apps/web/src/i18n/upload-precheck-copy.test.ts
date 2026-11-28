@@ -29,6 +29,13 @@ describe("upload pre-check copy pack", () => {
     expect(placeholders(en.tooLarge!)).toEqual(["limit", "size"]);
   });
 
+  it("the unsupported-type message names OpenDocument files, which the server accepts too, in both locales", () => {
+    expect(packEn.uploadPrecheck.unsupported).toBe(
+      "This file type isn't supported. You can upload images, audio, video, PDFs, Office and OpenDocument files, and text files.",
+    );
+    expect(packZhTW.uploadPrecheck.unsupported).toContain("OpenDocument");
+  });
+
   it.each([
     ["en", enRaw],
     ["zh-TW", zhTWRaw],

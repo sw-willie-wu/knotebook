@@ -11,6 +11,9 @@
     "pickAudio": "選擇要上傳的音訊檔",
     "pickVideo": "選擇要上傳的影片檔",
     "pickFile": "選擇要上傳的文件或文字檔",
-    "unsupportedTransfer": "無法加入這種檔案。可以加入圖片、音訊、影片、PDF、Office 與 OpenDocument 文件，以及文字檔。"
+    "unsupportedTransfer": "無法加入這種檔案。可以加入圖片、音訊、影片、PDF、Office 與 OpenDocument 文件，以及文字檔。",
+    "announceStart": "正在上傳 {{name}}",
+    "announce": "{{name}}：{{text}}",
+    "announceDone": "{{name}} 已上傳"
   }
 }

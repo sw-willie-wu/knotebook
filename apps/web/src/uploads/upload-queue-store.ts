@@ -124,6 +124,13 @@ export function dismissUpload(id: string): void {
   commit(items.filter((i) => i.id !== id));
 }
 
+/** Its block is gone or holds something else, so a failed item can never be written there; a file the server already has stays listed as no longer placed. */
+export function dropUnplaceableUpload(id: string): void {
+  const item = items.find((i) => i.id === id);
+  if (item?.status !== "failed") return;
+  commit(item.stored ? items.map((i) => (i.id === id ? { ...i, status: "unplaced" as const, retrying: undefined } : i)) : items.filter((i) => i.id !== id));
+}
+
 /** For the upload runner only. */
 export function removeUpload(id: string): void {
   if (items.some((i) => i.id === id)) commit(items.filter((i) => i.id !== id));

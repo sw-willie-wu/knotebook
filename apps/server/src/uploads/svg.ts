@@ -40,12 +40,7 @@ export interface SvgValidationDetail {
   prefix?: string;
 }
 
-/** True when `bytes` is valid UTF-8 well-formed XML 1.0 whose root element is `<svg>` in the SVG namespace; undeclared prefixes fail too, since browsers render such files as broken images. */
-export function isValidSvgXml(bytes: Uint8Array): boolean {
-  return validateSvgXml(bytes) === "valid";
-}
-
-/** Validates UTF-8 XML 1.0 well-formedness and checks for a root `<svg>` element declaring the SVG namespace. */
+/** Validates UTF-8 XML 1.0 well-formedness and checks for a root `<svg>` element declaring the SVG namespace. An undeclared prefix fails too: browsers render such a file as a broken image. */
 export function validateSvgXml(bytes: Uint8Array, detail?: SvgValidationDetail): SvgValidationResult {
   if (bytes.length === 0) return "invalid";
 

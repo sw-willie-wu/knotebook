@@ -116,7 +116,7 @@ function UploadRow({ item, onNavigate, onActed }: { item: UploadItem; onNavigate
         </div>
       )}
       {item.status === "writing" && <p className="text-muted-foreground">{t("uploadList.saving")}</p>}
-      {item.status === "unplaced" && <p className="text-destructive">{t("uploadList.placeGone")}</p>}
+      {item.status === "unplaced" && <p className="text-destructive">{t(item.stored ? "uploadList.placeGone" : "uploadList.placeGoneNotSent")}</p>}
       {item.status === "failed" && reason !== undefined && <p className="text-destructive">{reason}</p>}
       <p className="text-muted-foreground">
         {t("uploadList.inNote")}{" "}

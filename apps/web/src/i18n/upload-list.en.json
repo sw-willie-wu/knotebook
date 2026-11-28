@@ -8,12 +8,15 @@
     "inNote": "in",
     "someNote": "a note",
     "placeGone": "Uploaded, but its place in the note is gone.",
+    "placeGoneNotSent": "Not uploaded: its place in the note is gone.",
     "retry": "Retry",
     "retryLabel": "Retry {{name}}",
     "retryWait": "Retry in {{seconds}} s",
     "checking": "Checking…",
     "dismiss": "Close",
     "dismissLabel": "Close {{name}}",
-    "back": "Back"
+    "back": "Back",
+    "signOutTitle": "Log out and stop uploads?",
+    "signOutDescription": "Uploads still running stop when you log out, and they don't resume. To add those files, upload them again."
   }
 }

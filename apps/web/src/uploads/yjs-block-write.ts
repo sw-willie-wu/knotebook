@@ -16,6 +16,21 @@ function findBlockContainer(node: Y.XmlElement | Y.XmlFragment, blockId: string)
   return null;
 }
 
+type Target = { container: Y.XmlElement; content: Y.XmlElement } | "missing" | "changed";
+
+function uploadTarget(doc: Y.Doc, blockId: string, expectedUrl: string): Target {
+  const container = findBlockContainer(doc.getXmlFragment(YDOC_FRAGMENT), blockId);
+  const content = container?.get(0);
+  if (!container || !(content instanceof Y.XmlElement)) return "missing";
+  if (!FILE_BLOCK_TYPES.has(content.nodeName) || (content.getAttribute("url") ?? "") !== expectedUrl) return "changed";
+  return { container, content };
+}
+
+/** Whether `writeUploadedBlock` would still find the block waiting for this upload. */
+export function uploadBlockWaits(doc: Y.Doc, blockId: string, expectedUrl: string): boolean {
+  return typeof uploadTarget(doc, blockId, expectedUrl) !== "string";
+}
+
 /**
  * Writes on the `Y.Doc` rather than through the editor: an attached editor shares this doc, and
  * after the person left the note there is no editor at all.
@@ -27,10 +42,9 @@ export function writeUploadedBlock(
   result: UploadResponseDto,
   name: string,
 ): UploadedBlockWrite {
-  const container = findBlockContainer(doc.getXmlFragment(YDOC_FRAGMENT), blockId);
-  const content = container?.get(0);
-  if (!container || !(content instanceof Y.XmlElement)) return "missing";
-  if (!FILE_BLOCK_TYPES.has(content.nodeName) || (content.getAttribute("url") ?? "") !== expectedUrl) return "changed";
+  const target = uploadTarget(doc, blockId, expectedUrl);
+  if (typeof target === "string") return target;
+  const { container, content } = target;
 
   doc.transact(() => {
     if (content.nodeName === result.kind) {

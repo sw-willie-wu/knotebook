@@ -8,12 +8,15 @@
     "inNote": "在",
     "someNote": "一篇筆記",
     "placeGone": "已上傳，但筆記裡原本的位置不見了。",
+    "placeGoneNotSent": "沒有上傳：筆記裡原本的位置不見了。",
     "retry": "重試",
     "retryLabel": "重試 {{name}}",
     "retryWait": "{{seconds}} 秒後可重試",
     "checking": "確認中…",
     "dismiss": "關閉",
     "dismissLabel": "關閉 {{name}}",
-    "back": "返回"
+    "back": "返回",
+    "signOutTitle": "要登出並停止上傳嗎？",
+    "signOutDescription": "登出會停止還在進行的上傳，之後也不會接續。要加入這些檔案，請重新上傳。"
   }
 }

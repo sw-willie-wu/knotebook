@@ -11,6 +11,9 @@
     "pickAudio": "Choose an audio file to upload",
     "pickVideo": "Choose a video file to upload",
     "pickFile": "Choose a document or text file to upload",
-    "unsupportedTransfer": "This file type can't be added. You can add images, audio, video, PDFs, Office and OpenDocument files, and text files."
+    "unsupportedTransfer": "This file type can't be added. You can add images, audio, video, PDFs, Office and OpenDocument files, and text files.",
+    "announceStart": "Uploading {{name}}",
+    "announce": "{{name}}: {{text}}",
+    "announceDone": "{{name}} uploaded"
   }
 }

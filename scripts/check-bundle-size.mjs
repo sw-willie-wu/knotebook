@@ -73,9 +73,9 @@ export const UPLOADSLAZY_RE = /^UploadsLazy-[A-Za-z0-9_-]+\.js$/;
 // An uploadList.* key that lives only in upload-list.en.json: in entry or NotePage means upload-list-strings is statically imported there,
 // and it must stay reachable from the UploadsLazy chunk or the list would render raw keys.
 export const UPLOAD_LIST_I18N_MARKER = 'placeGone';
-// A string literal only `uploads/upload-runner.ts` has. The runner brings the collab connection and BlockNote's schema with it,
-// so the indicator in the entry reaches it with `import()` only.
-export const UPLOAD_RUNNER_MARKER = 'Signed out';
+// A string literal only `uploads/upload-runner.ts` has, worded so no UI copy in the entry is likely to repeat it. The runner brings
+// the collab connection and BlockNote's schema with it, so the indicator in the entry reaches it with `import()` only.
+export const UPLOAD_RUNNER_MARKER = "Couldn't confirm who is signed in";
 // Presence only catches the whole group merging back or a rename. The marker is the match rows' data-testid literal
 // (unlike i18n copy it is stable; only BodySearchResults.tsx may use it).
 export const BODYSEARCHLAZY_RE = /^BodySearchLazy-[A-Za-z0-9_-]+\.js$/;

@@ -423,7 +423,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [A crash in the middle of copying a note can leave a stray attachment file.](./known-limitations/uploads.md)
 - [An audio, video or file attachment written as a plain link isn't copied with the note and can't be opened from a public page.](./known-limitations/uploads.md)
 - [An upload that finishes while its note is open in a background browser tab leaves no notification.](./known-limitations/uploads.md)
-- [Closing or reloading the tab stops its uploads.](./known-limitations/uploads.md)
+- [Closing or reloading the tab, or logging out, stops its uploads.](./known-limitations/uploads.md)
 - [A file that was uploaded but is no longer placed stays until its note is permanently deleted.](./known-limitations/uploads.md)
 - [Starting an upload doesn't check who is signed in.](./known-limitations/uploads.md)
 - [A reverse proxy whose body limit is below the site's upload limit can make a refusal look like a network error.](./known-limitations/uploads.md)
