@@ -1,10 +1,11 @@
 // Deliberate: TrashPreviewPage must not rely on NoteEditor being loaded for BlockNote styles.
 import "@blocknote/mantine/style.css";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { buildNoteEditorOptionsBase } from "@/collab/editor-options";
+import { FilePreviewLayer } from "@/components/file-preview/FilePreviewLayer";
 import { MediaZoomContext } from "@/components/media-zoom/context";
 import { ARTICLE_TEXT_INSET } from "@/components/ui/article-column";
 import { trashMediaUrl } from "@/lib/trash-media-url";
@@ -35,6 +36,7 @@ function ReadonlyBlocksView({ noteId, blocks }: { noteId: string; blocks: readon
   const { i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
   const resolveUrl = useMemo(() => trashMediaUrl(noteId), [noteId]);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
   const editor = useCreateBlockNote(
     {
       ...buildNoteEditorOptionsBase(i18n.language),
@@ -45,9 +47,12 @@ function ReadonlyBlocksView({ noteId, blocks }: { noteId: string; blocks: readon
     [blocks, resolveUrl],
   );
   return (
-    <MediaZoomContext.Provider value={null}>
-      <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} data-testid="trash-preview-editor" />
-    </MediaZoomContext.Provider>
+    <div ref={setBox}>
+      <MediaZoomContext.Provider value={null}>
+        <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} data-testid="trash-preview-editor" />
+      </MediaZoomContext.Provider>
+      <FilePreviewLayer container={box} />
+    </div>
   );
 }
 

@@ -431,6 +431,7 @@ Each section below names one page and lists the bold headings of its entries; fo
 - [An editor that re-attaches soon after a reconnect may not see other people's presence until their next renewal.](./known-limitations/uploads.md)
 - [A media block still uploading reads as nothing, so an agent that rewrites its section removes it.](./known-limitations/uploads.md)
 - [Audio, video and file blocks pasted as HTML into the editor store an absolute URL.](./known-limitations/uploads.md)
+- [The file viewer on the page covers text files and PDFs only, and not everywhere.](./known-limitations/uploads.md)
 
 ## Sharing and groups
 

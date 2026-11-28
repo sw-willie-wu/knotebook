@@ -138,7 +138,7 @@ test("81-1 audio plays and video seeks (206); PDF, docx and csv are served as de
     const pdfRes = await owner.request.get(pdfUrl);
     expect(pdfRes.status()).toBe(200);
     expect(pdfRes.headers()["content-type"]).toBe("application/pdf");
-    expect(pdfRes.headers()["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'none'");
+    expect(pdfRes.headers()["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'self'");
     expect(pdfRes.headers()["x-content-type-options"]).toBe("nosniff");
     expect(pdfRes.headers()["content-disposition"]).toMatch(/^inline;/);
     // Headless Chromium usually downloads a PDF instead of rendering it; the marker check only means something when it renders.
@@ -157,18 +157,37 @@ test("81-1 audio plays and video seeks (206); PDF, docx and csv are served as de
     await clickFileLink(owner, "report.docx");
     expect((await download).suggestedFilename()).toBe("report.docx");
 
-    // csv: opens as plain text.
+    // csv: the name opens the text in a modal on the page; its "Open in new tab" opens it as plain text.
     const csvUrl = await hrefOf("data.csv");
     const csvRes = await owner.request.get(csvUrl);
     expect(csvRes.headers()["content-type"]).toBe("text/plain; charset=utf-8");
     expect(csvRes.headers()["content-disposition"]).toMatch(/^inline;/);
-    const popupPromise = owner.waitForEvent("popup");
     await clickFileLink(owner, "data.csv");
+    const csvPreview = owner.getByRole("dialog", { name: "data.csv" });
+    await expect(csvPreview.locator("pre")).toContainText("alpha,1");
+    const popupPromise = owner.waitForEvent("popup");
+    await csvPreview.locator("[data-file-preview-header]").getByRole("link", { name: "Open in new tab" }).click();
     const popup = await popupPromise;
     await popup.waitForLoadState();
     expect(await popup.evaluate(() => document.contentType)).toBe("text/plain");
     await expect(popup.locator("body")).toContainText("alpha,1");
     await popup.close();
+    await owner.bringToFront();
+    await owner.keyboard.press("Escape");
+    await expect(csvPreview).toBeHidden();
+    await expect(fileLink(owner, "data.csv")).toBeFocused();
+
+    // pdf: the name opens a modal framing the upload URL, which the PDF's CSP allows for this site only.
+    const framed = owner.waitForResponse((r) => new URL(r.url()).pathname === pdfUrl && r.frame() !== owner.mainFrame());
+    await clickFileLink(owner, "spec.pdf");
+    const pdfPreview = owner.getByRole("dialog", { name: "spec.pdf" });
+    await expect(pdfPreview.locator("iframe")).toHaveAttribute("src", pdfUrl);
+    await expect(pdfPreview.locator("iframe")).not.toHaveAttribute("sandbox");
+    expect((await framed).headers()["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'self'");
+    await owner.keyboard.press("Escape");
+    await expect(pdfPreview).toBeHidden();
+    await expect(fileLink(owner, "spec.pdf")).toBeFocused();
+    expect(markers).toEqual([]);
 
     // Public page: the audio plays for an anonymous visitor.
     await owner.getByRole("button", { name: "Share", exact: true }).click();
@@ -196,6 +215,15 @@ test("81-1 audio plays and video seeks (206); PDF, docx and csv are served as de
       return (el as HTMLAudioElement).play();
     });
     await expect.poll(() => publicAudio.evaluate((el) => (el as HTMLAudioElement).currentTime), { timeout: 10_000 }).toBeGreaterThan(0);
+
+    // The file viewer works for an anonymous visitor too, through the public upload URL.
+    const publicCsv = anon.locator('[data-testid="public-note-editor"] .bn-file-name a', { hasText: "data.csv" });
+    await expect(publicCsv).toHaveAttribute("href", /^\/api\/public\/notes\/[^/]+\/uploads\/[^/]+$/);
+    await publicCsv.click();
+    const publicPreview = anon.getByRole("dialog", { name: "data.csv" });
+    await expect(publicPreview.locator("pre")).toContainText("alpha,1");
+    await anon.keyboard.press("Escape");
+    await expect(publicPreview).toBeHidden();
     expect(markers).toEqual([]);
   } finally {
     await ownerContext.close();

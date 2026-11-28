@@ -3,6 +3,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { ApiFail } from "@/api/client";
 import i18n from "@/i18n";
 import { safeMediaUrl } from "@/lib/media-url";
+import { FILE_NAME_LINK } from "@/components/file-preview/file-preview-target";
 import { putUpload, removeUpload, resetUploadQueueForTest, type UploadItem } from "@/uploads/upload-queue-store";
 
 const runner = vi.hoisted(() => ({ retryUpload: vi.fn(() => Promise.resolve()) }));
@@ -237,6 +238,8 @@ describe("file block name links to the file", () => {
     expect(link.rel).toBe("noopener");
     expect(link.hasAttribute("download")).toBe(false);
     expect(link.textContent).toBe("report.pdf");
+    // The file preview finds the link by this selector and reads the name from its text.
+    expect(link.matches(FILE_NAME_LINK)).toBe(true);
   });
 
   it.each(["javascript:alert(1)", "data:text/html;base64,PHNjcmlwdD4="])("%s is not linked", async (url) => {

@@ -19,6 +19,7 @@ import { useVersions } from "@/lib/versions-context";
 import { useTheme } from "@/theme";
 import { cn } from "@/lib/utils";
 import { MediaZoomContext } from "@/components/media-zoom/context";
+import { FilePreviewLayer } from "@/components/file-preview/FilePreviewLayer";
 import { ComparePicker } from "./ComparePicker";
 import { KNOWLEDGE_OUTDATED_ATTR } from "@/collab/knowledge-decorations";
 import { KnowledgeLayerLazy } from "@/components/knowledge/KnowledgeLayerLazy";
@@ -119,6 +120,7 @@ export function DiffEditor({
       <MediaZoomContext.Provider value={null}>
         <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} />
       </MediaZoomContext.Provider>
+      <FilePreviewLayer container={box} />
       {knowledge && (
         <KnowledgeLayerLazy key={generation.current.n} container={box} entries={knowledge.entries} editable={false} noteId={null} memberNoteId={knowledge.memberNoteId ?? null} controller={controller} accept={knowledge.accept} />
       )}

@@ -111,6 +111,9 @@ describe("securityHeaders (issue #101)", () => {
     expect(directive(csp, "img-src")).toBe("'self' data: blob: http: https:");
     expect(directive(csp, "media-src")).toBe("'self' http: https:");
     expect(directive(csp, "media-src")).not.toMatch(/blob:|data:/);
+    // The file preview frames this site's own PDFs: frames fall back to default-src 'self', so neither may be set.
+    expect(directive(csp, "frame-src")).toBeUndefined();
+    expect(directive(csp, "child-src")).toBeUndefined();
   });
 
   it("the other two headers sent with it: nosniff and no-referrer (the latter lets external images load without leaking which note is being viewed)", () => {

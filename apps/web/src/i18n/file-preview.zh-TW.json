@@ -1,0 +1,10 @@
+{
+  "filePreview": {
+    "openInNewTab": "在新分頁開啟",
+    "download": "下載",
+    "loading": "載入中…",
+    "truncated": "只顯示前 1 MB。",
+    "error": "這個檔案無法在這裡顯示。",
+    "frameTitle": "{{name}} 預覽"
+  }
+}

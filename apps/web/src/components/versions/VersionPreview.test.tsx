@@ -878,6 +878,29 @@ describe("VersionPreview", () => {
     expect(box).not.toHaveAttribute("tabindex");
   });
 
+  it("a file block's text or PDF name opens the file preview modal in the version preview too", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("alpha,1", { status: 206, headers: { "content-type": "text/plain; charset=utf-8", "content-range": "bytes 0-6/7" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const blocks = [{ id: "f1", type: "file", props: { url: "/api/uploads/u1", name: "data.csv" }, children: [] }] as unknown as DiffBlock[];
+      render(
+        <ThemeProvider>
+          <DiffEditor blocks={blocks} marks={new Map()} />
+        </ThemeProvider>,
+      );
+      const link = await waitFor(() => {
+        const a = screen.getByTestId("diff-pane").querySelector<HTMLAnchorElement>(".bn-file-name a");
+        if (!a) throw new Error("not linked yet");
+        return a;
+      });
+      expect(fireEvent.click(link, { button: 0 })).toBe(false);
+      const dialog = await screen.findByRole("dialog", { name: "data.csv" });
+      expect(await within(dialog).findByText("alpha,1")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   describe("side-by-side diff marks and split top-level units", () => {
     // The fixture has the same shape as the column-diff cases in version-diff.test.ts; rows and columns always carry ids.
     const P = (text: string, id: string): DiffBlock => ({ id, type: "paragraph", props: {}, content: [{ type: "text", text, styles: {} }], children: [] });
