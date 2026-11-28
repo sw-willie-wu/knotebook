@@ -26,6 +26,7 @@ describe("isSiteUploadUrl", () => {
     "https://notes.example/api/uploads/u1",
     "/api/public/notes/TOKEN/uploads/u1",
     "/api/public/notes/alice/my-note/uploads/u1",
+    "/api/trash/n1/uploads/u1",
   ])("%s is one of this site's upload URLs", (href) => {
     expect(isSiteUploadUrl(href, BASE)).toBe(true);
   });
@@ -38,6 +39,9 @@ describe("isSiteUploadUrl", () => {
     "/api/uploads/",
     "/api/public/notes/TOKEN",
     "/api/public/notes/a/b/c/uploads/u1",
+    "/api/trash/n1/u1",
+    "/api/trash/a/b/uploads/u1",
+    "/api/trash/uploads/u1",
     "/uploads/u1",
     "javascript:alert(1)",
     "",

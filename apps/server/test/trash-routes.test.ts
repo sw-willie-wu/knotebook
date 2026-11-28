@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import type { NoteDto, TrashListDto, TrashPreviewDto, TrashPurgeResultDto, TrashRestoreResultDto } from "@knotebook/shared";
@@ -12,8 +13,10 @@ import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "../src/storage/tx/quota.js";
 import { readSpaceUsage } from "../src/storage/usage.js";
 import { purgeTrashed } from "../src/trash/service.js";
 import { uploadFilePath } from "../src/uploads/service.js";
+import { uploads } from "../src/db/schema.js";
 import { bearer, seedTokenForUser } from "./editing-helpers.js";
-import { seedGroup, seedNote, seedShare, seedUser, spyCollabHooks, type SeededUser } from "./group-helpers.js";
+import { cookieOf, seedGroup, seedNote, seedShare, seedUser, spyCollabHooks, type SeededUser } from "./group-helpers.js";
+import { expectRangeServing } from "./helpers/upload-serving.js";
 import { buildTestApp } from "./helpers.js";
 import { captureLogs } from "./helpers/admin-auth.js";
 import { giveUserQuota, seedAttachment } from "./storage-helpers.js";
@@ -597,6 +600,24 @@ describe("trash preview uploads", () => {
     expect(ok.headers["x-content-type-options"]).toBe("nosniff");
     expect((await inject(app, "GET", `/api/trash/${n.id}/uploads/${otherUp}`, owner.id)).statusCode).toBe(404);
     expect((await inject(app, "GET", `/api/trash/${n.id}/uploads/${up}`, friend.id)).statusCode).toBe(404);
+  });
+
+  it("a PDF is served with the upload class headers (framable by this site only) and answers Range, validator and HEAD requests", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await seedUser(db);
+    const n = await seedNote(db, { ownerId: owner.id });
+    const bytes = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(200, 0x20), Buffer.from("\n%%EOF\n")]);
+    const [row] = await db.insert(uploads).values({ noteId: n.id, uploaderId: owner.id, mime: "application/pdf", size: bytes.length, fileName: "slides.pdf" }).returning({ id: uploads.id });
+    await writeFile(uploadFilePath(uploadsDir, row!.id), bytes);
+    await expect204(del(app, n.id, owner.id));
+    const url = `/api/trash/${n.id}/uploads/${row!.id}`;
+    const cookies = await cookieOf(owner.id);
+    await expectRangeServing(opts => app.inject({ method: opts?.method ?? "GET", url, cookies, headers: opts?.headers }), bytes);
+    const res = await app.inject({ method: "GET", url, cookies });
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'self'");
+    expect(res.headers["content-disposition"]).toBe("inline; filename=\"slides.pdf\"; filename*=UTF-8''slides.pdf");
+    expect(res.headers["x-frame-options"]).toBeUndefined();
   });
 });
 

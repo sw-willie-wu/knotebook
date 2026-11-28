@@ -12,8 +12,8 @@ export interface FilePreviewRequest {
 /** The name link `collab/upload-block-status.ts` puts on file blocks; its text is the block's name. */
 export const FILE_NAME_LINK = '.bn-block-content[data-content-type="file"] .bn-file-name a[href]';
 
-// Same shapes as the member and public upload routes; one segment per path part, so nothing else under /api/ matches.
-const UPLOAD_PATH = /^\/api\/(?:uploads|public\/notes\/[^/]+(?:\/[^/]+)?\/uploads)\/[^/]+$/;
+// Same shapes as the member, public and trash-preview upload routes; one segment per path part, so nothing else under /api/ matches.
+const UPLOAD_PATH = /^\/api\/(?:uploads|public\/notes\/[^/]+(?:\/[^/]+)?\/uploads|trash\/[^/]+\/uploads)\/[^/]+$/;
 
 export function isSiteUploadUrl(href: string, base: string = window.location.href): boolean {
   if (href === "") return false;

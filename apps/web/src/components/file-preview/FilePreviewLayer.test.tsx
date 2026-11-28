@@ -155,11 +155,12 @@ describe("which clicks open the preview", () => {
 });
 
 describe("mount points", () => {
-  // The version preview's DiffEditor has a behavioural test in VersionPreview.test.tsx; these two render too much to mount here.
+  // DiffEditor and the trash preview have behavioural tests (VersionPreview.test.tsx, TrashPreviewEditor.test.tsx); the note and public pages render too much to mount here.
   it.each([
     ["src/components/NoteEditor.tsx", "<FilePreviewLayer container={columnEl} />"],
     ["src/pages/PublicNotePage.tsx", "<FilePreviewLayer container={columnEl} />"],
     ["src/components/versions/VersionPreview.tsx", "<FilePreviewLayer container={box} />"],
+    ["src/components/TrashPreviewEditor.tsx", "<FilePreviewLayer container={box} />"],
   ])("%s mounts the layer on the element that holds its editor", (path, tag) => {
     expect(readFileSync(join(process.cwd(), path), "utf8")).toContain(tag);
   });
@@ -395,5 +396,8 @@ describe("the modal", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "data.csv" })).toBeNull());
     expect(onOuterChange).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: "Compare" })).toBeInTheDocument();
+    // Its own lock released, the outer one kept; focus back on the link inside the outer dialog.
+    await waitFor(() => expect(document.body).toHaveAttribute("data-scroll-locked", "1"));
+    await waitFor(() => expect(link).toHaveFocus());
   });
 });
